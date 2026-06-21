@@ -1,0 +1,21 @@
+{
+  "usuarios": {
+    "krMVeLw23JZeovrdoMPCpI4lyzD2": {
+        "Input": {
+            "racao": false,
+            "agua": false
+        },
+        "Output": {
+            "tempSN": 33,
+            "TempN": 30,
+            "umid": 32,
+            "ruido": 23,
+            "lum":2000
+        },
+        "perfil": {
+            "nome" : "Caroline"
+        }
+
+        }
+    }
+  }
