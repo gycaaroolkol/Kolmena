@@ -73,9 +73,10 @@ interface HiveDetailsProps {
   hive: HiveData;
   userId?: string;
   onBack: () => void;
+  showSobreninho?: boolean;
 }
 
-export function HiveDetails({ hive, userId, onBack }: HiveDetailsProps) {
+export function HiveDetails({ hive, userId, onBack, showSobreninho = true }: HiveDetailsProps) {
   // Inicialização segura com fallbacks explícitos
   const [hiveData, setHiveData] = useState<HiveData>(() => ({
     id: hive?.id || "ID_DESCONHECIDO",
@@ -102,6 +103,12 @@ export function HiveDetails({ hive, userId, onBack }: HiveDetailsProps) {
       racao: hiveData.controls?.racao ?? false
     });
   }, [hiveData.controls?.agua, hiveData.controls?.racao]);
+
+  useEffect(() => {
+    if (!showSobreninho && (selectedChart === "tempSN" || selectedChart === "umidadeSN")) {
+      setSelectedChart("tempN");
+    }
+  }, [selectedChart, showSobreninho]);
 
   // --- ESCUTA EM TEMPO REAL COM O FIRESTORE ---
   useEffect(() => {
@@ -258,7 +265,7 @@ export function HiveDetails({ hive, userId, onBack }: HiveDetailsProps) {
       bgSelected: "bg-amber-500/10 border-amber-500 ring-amber-500/20 text-amber-600",
       iconColor: "text-yellow-500"
     },
-  ];
+  ].filter((metric) => showSobreninho || (metric.id !== "tempSN" && metric.id !== "umidadeSN"));
 
   const selectedMetric = selectedChart ? metrics.find((m) => m.id === selectedChart) : null;
   const selectedSuggestion = selectedMetric ? getMetricSuggestion(selectedMetric.id, selectedMetric.value) : null;

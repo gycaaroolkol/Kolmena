@@ -48,6 +48,7 @@ interface HiveCardProps {
   onViewDetails: (hive: HiveData) => void;
   onDelete?: (id: string) => void;
   onConfirmCleaning?: (id: string) => void;
+  showSobreninho?: boolean;
 }
 
 function isCritical(label: string, value: number) {
@@ -81,7 +82,7 @@ function getCriticalStatus(label: string, value: number) {
   return "";
 }
 
-export function HiveCard({ hive, onViewDetails, onDelete, onConfirmCleaning }: HiveCardProps) {
+export function HiveCard({ hive, onViewDetails, onDelete, onConfirmCleaning, showSobreninho = true }: HiveCardProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
  
   const sensorData = {
@@ -167,9 +168,9 @@ export function HiveCard({ hive, onViewDetails, onDelete, onConfirmCleaning }: H
 
   const hasCriticalSensor =
     isCritical("Ninho", sensorData.TempN) ||
-    isCritical("S. Ninho", sensorData.tempSN) ||
     isCritical("Umid. N", sensorData.umidN) ||
-    isCritical("Umid. SN", sensorData.umidSN) ||
+    (showSobreninho && isCritical("S. Ninho", sensorData.tempSN)) ||
+    (showSobreninho && isCritical("Umid. SN", sensorData.umidSN)) ||
     isCritical("Ruído", sensorData.ruido) ||
     isCritical("Luz", sensorData.lum);
 
@@ -207,9 +208,13 @@ export function HiveCard({ hive, onViewDetails, onDelete, onConfirmCleaning }: H
         {/* GRID DE SENSORES */}
         <div className="grid grid-cols-2 gap-3">
           <SensorItem label="Ninho" val={sensorData.TempN} color="orange" unit="°C" icon={<Thermometer className="w-6 h-6 text-orange-500" />} />
-          <SensorItem label="S. Ninho" val={sensorData.tempSN} color="orange" unit="°C" icon={<Thermometer className="w-6 h-6 text-red-500" />} />
+          {showSobreninho && (
+            <SensorItem label="S. Ninho" val={sensorData.tempSN} color="orange" unit="°C" icon={<Thermometer className="w-6 h-6 text-red-500" />} />
+          )}
           <SensorItem label="Umid. N" val={sensorData.umidN} color="blue" unit="%" icon={<Droplets className="w-6 h-6 text-blue-500" />} />
-          <SensorItem label="Umid. SN" val={sensorData.umidSN} color="darkBlue" unit="%" icon={<Droplets className="w-6 h-6 text-blue-700" />} />
+          {showSobreninho && (
+            <SensorItem label="Umid. SN" val={sensorData.umidSN} color="darkBlue" unit="%" icon={<Droplets className="w-6 h-6 text-blue-700" />} />
+          )}
           <SensorItem label="Ruído" val={sensorData.ruido} unit="dB" color="purple" icon={<Volume2 className="w-6 h-6 text-purple-500" />} />
           <SensorItem label="Luz" val={sensorData.lum} unit="lux" color="yellow" icon={<Sun className="w-6 h-6 text-yellow-500" />} />
         </div>

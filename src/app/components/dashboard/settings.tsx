@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, Settings as SettingsIcon, LogOut, User, Mail, Lock, Check, Clock } from "lucide-react";
+import { X, Settings as SettingsIcon, LogOut, User, Mail, Lock, Clock, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TechInput } from "@/app/components/ui/tech-input";
 import { TechButton } from "@/app/components/ui/tech-button";
@@ -14,6 +14,8 @@ interface SettingsProps {
   maintenanceSettings: { enabled: boolean; time: string; lastMaintenance: string };
   onUpdateMaintenance: (settings: any) => void;
   onUpdateUser?: (updates: { displayName?: string; email?: string }) => void;
+  accountSettings: { showSobreninho: boolean };
+  onUpdateAccountSettings: (settings: { showSobreninho: boolean }) => void | Promise<void>;
 }
 
 export function Settings({ 
@@ -23,9 +25,11 @@ export function Settings({
   onLogout,
   maintenanceSettings,
   onUpdateMaintenance,
-  onUpdateUser
+  onUpdateUser,
+  accountSettings,
+  onUpdateAccountSettings
 }: SettingsProps) {
-  const [activeTab, setActiveTab] = useState<"profile" | "security" | "maintenance">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "security" | "maintenance" | "display">("profile");
   const [showConfirmDisable, setShowConfirmDisable] = useState(false);
   
   // Profile state
@@ -97,6 +101,7 @@ export function Settings({
                   { id: "profile", label: "Meu Perfil", icon: User },
                   { id: "security", label: "Segurança", icon: Lock },
                   { id: "maintenance", label: "Manutenção", icon: SettingsIcon },
+                  { id: "display", label: "Exibição", icon: Eye },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -131,6 +136,7 @@ export function Settings({
                     {activeTab === "profile" && "Informações Pessoais"}
                     {activeTab === "security" && "Acesso e Segurança"}
                     {activeTab === "maintenance" && "Cronograma de Limpeza"}
+                    {activeTab === "display" && "Preferências Visuais"}
                   </h3>
                   <button onClick={onClose} className="p-2 text-zinc-400 hover:text-amber-500 transition-colors">
                     <X className="w-6 h-6" />
@@ -286,6 +292,46 @@ export function Settings({
                         </div>
                       </motion.div>
                     )}
+
+                  {activeTab === "display" && (
+                    <motion.div
+                      key="display"
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                      className="space-y-6"
+                    >
+                      <div className="flex items-center justify-between p-6 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl">
+                        <div className="space-y-1 pr-4">
+                          <h4 className="text-[11px] font-black uppercase tracking-widest text-zinc-900 dark:text-white">Dados do Sobreninho</h4>
+                          <p className="text-[10px] text-zinc-500 uppercase font-mono tracking-tighter leading-relaxed">
+                            Exibe temperatura, umidade e gráficos do sobreninho
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const nextValue = !accountSettings.showSobreninho;
+                            try {
+                              await onUpdateAccountSettings({ ...accountSettings, showSobreninho: nextValue });
+                              toast.success(nextValue ? "Sobreninho exibido." : "Sobreninho ocultado.");
+                            } catch {
+                              toast.error("Erro ao salvar preferência.");
+                            }
+                          }}
+                          className={cn(
+                            "relative w-12 h-6 rounded-full transition-colors duration-300 flex items-center px-1 shrink-0",
+                            accountSettings.showSobreninho ? "bg-amber-500" : "bg-zinc-300 dark:bg-zinc-800"
+                          )}
+                        >
+                          <div className={cn(
+                            "w-4 h-4 bg-white rounded-full transition-transform duration-300",
+                            accountSettings.showSobreninho ? "translate-x-6" : "translate-x-0"
+                          )} />
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
                   </AnimatePresence>
               </div>
             </div>

@@ -40,10 +40,19 @@ interface DashboardProps {
   onUpdateUser?: (updates: { displayName?: string; email?: string }) => void;
 }
 
+type AccountSettings = {
+  showSobreninho: boolean;
+};
+
+const defaultAccountSettings: AccountSettings = {
+  showSobreninho: true
+};
+
 export function Dashboard({ onLogout, user, onUpdateUser }: DashboardProps) {
 
   const [hives, setHives] = useState<HiveData[]>([]);
   const [isLoadingHives, setIsLoadingHives] = useState(true);
+  const [accountSettings, setAccountSettings] = useState<AccountSettings>(defaultAccountSettings);
   
   const [selectedHive, setSelectedHive] = useState<HiveData | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -62,6 +71,44 @@ export function Dashboard({ onLogout, user, onUpdateUser }: DashboardProps) {
   useEffect(() => {
     localStorage.setItem('kolmena_maintenance_settings', JSON.stringify(maintenanceSettings));
   }, [maintenanceSettings]);
+
+  useEffect(() => {
+    if (!user?.uid || user?.isDemo) {
+      setAccountSettings(defaultAccountSettings);
+      return;
+    }
+
+    const userRef = doc(db, "usuarios", user.uid);
+    const unsubscribe = onSnapshot(userRef, (snapshot) => {
+      const data = snapshot.data();
+      setAccountSettings({
+        showSobreninho: data?.settings?.showSobreninho !== false
+      });
+    }, (error) => {
+      console.error("Erro ao carregar preferencias da conta:", error);
+      toast.error("Erro ao carregar preferências da conta.");
+    });
+
+    return () => unsubscribe();
+  }, [user?.uid, user?.isDemo]);
+
+  const handleUpdateAccountSettings = async (settings: AccountSettings) => {
+    const previousSettings = accountSettings;
+    setAccountSettings(settings);
+
+    if (!user?.uid || user?.isDemo) return;
+
+    try {
+      await setDoc(doc(db, "usuarios", user.uid), {
+        settings,
+        atualizadoEm: serverTimestamp()
+      }, { merge: true });
+    } catch (error) {
+      console.error("Erro ao salvar preferencias da conta:", error);
+      setAccountSettings(previousSettings);
+      throw error;
+    }
+  };
 
   const resetMaintenanceTimer = () => {
 setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().toISOString() }));
@@ -587,7 +634,7 @@ const handleConfirmCleaning = async (id: string) => {
   };
 
   if (selectedHive) {
-    return <HiveDetails hive={selectedHive} userId={user?.uid} onBack={() => setSelectedHive(null)} />;
+    return <HiveDetails hive={selectedHive} userId={user?.uid} onBack={() => setSelectedHive(null)} showSobreninho={accountSettings.showSobreninho} />;
   }
 
   if (currentView === 'mission') {
@@ -801,6 +848,7 @@ const handleConfirmCleaning = async (id: string) => {
                           onViewDetails={(h) => setSelectedHive(h)} 
                           onDelete={handleDeleteHive}
                           onConfirmCleaning={handleConfirmCleaning} 
+                          showSobreninho={accountSettings.showSobreninho}
                         />
                       </motion.div>
                     ))}
@@ -847,6 +895,8 @@ const handleConfirmCleaning = async (id: string) => {
         onUpdateUser={onUpdateUser || (() => {})}
         maintenanceSettings={maintenanceSettings}
         onUpdateMaintenance={setMaintenanceSettings}
+        accountSettings={accountSettings}
+        onUpdateAccountSettings={handleUpdateAccountSettings}
       />
 
       {/* Add Hive Modal */}

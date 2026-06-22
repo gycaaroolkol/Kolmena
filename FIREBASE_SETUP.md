@@ -25,6 +25,8 @@ usuarios/{uid}
   nome
   email
   colmeias: ["MEL-001"]
+  settings
+    showSobreninho
   criadoEm
 
 colmeias/{hiveId}
