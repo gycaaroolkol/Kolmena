@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, Settings as SettingsIcon, LogOut, User, Mail, Lock, Clock, Eye } from "lucide-react";
+import { X, Settings as SettingsIcon, LogOut, User, Mail, Lock, Clock, Eye, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TechInput } from "@/app/components/ui/tech-input";
 import { TechButton } from "@/app/components/ui/tech-button";
@@ -11,6 +11,7 @@ interface SettingsProps {
   onClose: () => void;
   user: any;
   onLogout: () => void;
+  onDeleteAccount: () => void | Promise<void>;
   maintenanceSettings: { enabled: boolean; time: string; lastMaintenance: string };
   onUpdateMaintenance: (settings: any) => void;
   onUpdateUser?: (updates: { displayName?: string; email?: string }) => void;
@@ -23,6 +24,7 @@ export function Settings({
   onClose, 
   user, 
   onLogout,
+  onDeleteAccount,
   maintenanceSettings,
   onUpdateMaintenance,
   onUpdateUser,
@@ -31,6 +33,7 @@ export function Settings({
 }: SettingsProps) {
   const [activeTab, setActiveTab] = useState<"profile" | "security" | "maintenance" | "display">("profile");
   const [showConfirmDisable, setShowConfirmDisable] = useState(false);
+  const [showConfirmDeleteAccount, setShowConfirmDeleteAccount] = useState(false);
   
   // Profile state
   const [username, setUsername] = useState(user?.displayName || "Operador");
@@ -119,13 +122,22 @@ export function Settings({
                 ))}
               </nav>
 
-              <button 
-                onClick={() => { onClose(); if (onLogout) onLogout(); }} 
-                className="mt-auto flex items-center gap-3 px-4 py-3 text-[10px] text-red-500 uppercase font-black tracking-widest hover:bg-red-500/5 transition-all rounded-xl"
-              >
-                <LogOut className="w-4 h-4" />
-                Sair do Sistema
-              </button>
+              <div className="mt-auto space-y-2">
+                <button 
+                  onClick={() => { onClose(); if (onLogout) onLogout(); }} 
+                  className="w-full flex items-center gap-3 px-4 py-3 text-[10px] text-red-500 uppercase font-black tracking-widest hover:bg-red-500/5 transition-all rounded-xl"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sair do Sistema
+                </button>
+                <button
+                  onClick={() => setShowConfirmDeleteAccount(true)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-[10px] text-red-700 dark:text-red-400 uppercase font-black tracking-widest hover:bg-red-500/10 transition-all rounded-xl"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Deletar Conta
+                </button>
+              </div>
             </div>
 
             {/* Content */}
@@ -336,6 +348,49 @@ export function Settings({
               </div>
             </div>
           </motion.div>
+
+          {showConfirmDeleteAccount && (
+            <div className="absolute inset-0 z-[120] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowConfirmDeleteAccount(false)}
+                className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 12 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 12 }}
+                className="relative w-full max-w-sm bg-white dark:bg-zinc-950 border border-red-200 dark:border-red-900/60 rounded-3xl p-6 shadow-2xl"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-red-500/10 text-red-500 flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <h3 className="text-base font-black text-center text-zinc-900 dark:text-white uppercase tracking-wider mb-2">Deletar conta?</h3>
+                <p className="text-xs text-zinc-500 text-center leading-relaxed mb-6">
+                  Essa ação remove sua conta, suas colmeias e os históricos vinculados. Não será possível desfazer.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setShowConfirmDeleteAccount(false)}
+                    className="h-11 rounded-xl bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await onDeleteAccount();
+                      setShowConfirmDeleteAccount(false);
+                    }}
+                    className="h-11 rounded-xl bg-red-500 text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-red-500/20"
+                  >
+                    Deletar
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
         </div>
       )}
     </AnimatePresence>

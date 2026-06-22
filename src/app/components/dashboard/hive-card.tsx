@@ -19,6 +19,15 @@ export interface HiveData {
     agua?: boolean;
     racao?: boolean;
   };
+  winterMode?: {
+    enabled?: boolean;
+    time?: string;
+    activeUntilMonth?: number;
+    waterDurationMs?: number;
+    foodDurationMs?: number;
+    lastRunDate?: string;
+    autoDisabledAt?: string | number | Date | Timestamp | null;
+  };
   lastFeedingTime?: {
     food?: string | number | Date | Timestamp | null;
     water?: string | number | Date | Timestamp | null;

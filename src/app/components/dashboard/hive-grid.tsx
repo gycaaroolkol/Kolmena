@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { FirebaseError } from "firebase/app";
 import { HiveCard, HiveData } from "./hive-card";
 import { HiveDetails } from "./hive-details";
@@ -27,7 +27,8 @@ import {
   updateDoc,
   where
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { deleteUser } from "firebase/auth";
+import { auth, db } from "@/lib/firebase";
 import { mapHiveSnapshot, valueToMillis } from "./firestore-hive";
 
 function getFirebaseErrorCode(error: unknown) {
@@ -44,9 +45,44 @@ type AccountSettings = {
   showSobreninho: boolean;
 };
 
+type WinterModeSettings = {
+  enabled: boolean;
+  time: string;
+  activeUntilMonth: number;
+  waterDurationMs: number;
+  foodDurationMs: number;
+  lastRunDate?: string;
+  autoDisabledAt?: unknown;
+};
+
 const defaultAccountSettings: AccountSettings = {
   showSobreninho: true
 };
+
+const defaultWinterMode: WinterModeSettings = {
+  enabled: false,
+  time: "06:00",
+  activeUntilMonth: 5,
+  waterDurationMs: 2000,
+  foodDurationMs: 3000
+};
+
+function isWinterModeSeason(date = new Date(), activeUntilMonth = 5) {
+  const month = date.getMonth() + 1;
+  return month === 12 || month <= activeUntilMonth;
+}
+
+function shouldAutoDisableWinterMode(date = new Date(), activeUntilMonth = 5) {
+  const month = date.getMonth() + 1;
+  return month > activeUntilMonth && month < 12;
+}
+
+function getLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 export function Dashboard({ onLogout, user, onUpdateUser }: DashboardProps) {
 
@@ -58,6 +94,13 @@ export function Dashboard({ onLogout, user, onUpdateUser }: DashboardProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  const [hivePendingDelete, setHivePendingDelete] = useState<HiveData | null>(null);
+  const [isWinterModeOpen, setIsWinterModeOpen] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [winterMode, setWinterMode] = useState<WinterModeSettings>(defaultWinterMode);
+  const [winterTimeDraft, setWinterTimeDraft] = useState(defaultWinterMode.time);
+  const [hasUserWinterMode, setHasUserWinterMode] = useState(false);
+  const winterRunInProgressRef = useRef(false);
   
   // Maintenance Settings
   const [maintenanceSettings, setMaintenanceSettings] = useState(() => {
@@ -81,9 +124,29 @@ export function Dashboard({ onLogout, user, onUpdateUser }: DashboardProps) {
     const userRef = doc(db, "usuarios", user.uid);
     const unsubscribe = onSnapshot(userRef, (snapshot) => {
       const data = snapshot.data();
+      const storedWinterMode = data?.winterMode;
+
       setAccountSettings({
         showSobreninho: data?.settings?.showSobreninho !== false
       });
+
+      setHasUserWinterMode(Boolean(storedWinterMode));
+      if (storedWinterMode) {
+        const nextWinterMode = {
+          enabled: Boolean(storedWinterMode.enabled),
+          time: typeof storedWinterMode.time === "string" ? storedWinterMode.time : defaultWinterMode.time,
+          activeUntilMonth: Number(storedWinterMode.activeUntilMonth) || 5,
+          waterDurationMs: Number(storedWinterMode.waterDurationMs) || 2000,
+          foodDurationMs: Number(storedWinterMode.foodDurationMs) || 3000,
+          lastRunDate: typeof storedWinterMode.lastRunDate === "string" ? storedWinterMode.lastRunDate : undefined,
+          autoDisabledAt: storedWinterMode.autoDisabledAt ?? undefined
+        };
+        setWinterMode(nextWinterMode);
+        setWinterTimeDraft(nextWinterMode.time);
+      } else {
+        setWinterMode(defaultWinterMode);
+        setWinterTimeDraft(defaultWinterMode.time);
+      }
     }, (error) => {
       console.error("Erro ao carregar preferencias da conta:", error);
       toast.error("Erro ao carregar preferências da conta.");
@@ -136,38 +199,76 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
   }, [notifications]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [currentView, setCurrentView] = useState<"dashboard" | "mission">("dashboard");
-  const [isWinterModeOpen, setIsWinterModeOpen] = useState(false);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [isWinterModeActive, setIsWinterModeActive] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('kolmena_winter_mode_active');
-      return saved ? JSON.parse(saved) : true;
-    }
-    return true;
-  });
 
-  const handleToggleWinterMode = () => {
-    if (isWinterModeActive) {
+  const persistWinterMode = async (nextSettings: WinterModeSettings) => {
+    if (!user?.uid || user?.isDemo) {
+      setWinterMode(nextSettings);
+      setWinterTimeDraft(nextSettings.time);
+      return;
+    }
+
+    const persistedWinterMode = {
+      ...nextSettings,
+      updatedAt: serverTimestamp()
+    };
+
+    await setDoc(doc(db, "usuarios", user.uid), {
+      winterMode: persistedWinterMode,
+      atualizadoEm: serverTimestamp()
+    }, { merge: true });
+
+    if (hives.length > 0) {
+      await Promise.all(hives.map((hive) => updateDoc(doc(db, "colmeias", hive.id), {
+        winterMode: persistedWinterMode,
+        atualizadoEm: serverTimestamp()
+      })));
+    }
+
+    setWinterMode(nextSettings);
+    setWinterTimeDraft(nextSettings.time);
+    setHasUserWinterMode(true);
+  };
+
+  const handleToggleWinterMode = async () => {
+    if (winterMode.enabled) {
       setShowConfirmModal(true);
     } else {
-      setIsWinterModeActive(true);
-      toast.success("Modo Inverno ativado com sucesso", {
-        style: { background: '#18181b', color: '#f59e0b', border: '1px solid #f59e0b' }
-      });
+      try {
+        const nextSettings = {
+          ...winterMode,
+          enabled: true,
+          time: winterTimeDraft || defaultWinterMode.time,
+          activeUntilMonth: 5,
+          waterDurationMs: 2000,
+          foodDurationMs: 3000
+        };
+        await persistWinterMode(nextSettings);
+        toast.success("Modo Inverno ativado com sucesso", {
+          style: { background: '#18181b', color: '#f59e0b', border: '1px solid #f59e0b' }
+        });
+      } catch (error) {
+        console.error("Erro ao ativar Modo Inverno:", error);
+        toast.error("Erro ao ativar Modo Inverno.");
+      }
     }
   };
 
-  const confirmDeactivation = () => {
-    setIsWinterModeActive(false);
-    setShowConfirmModal(false);
-    toast.warning("Modo Inverno desativado manualmente", {
-      style: { background: '#18181b', color: '#ef4444', border: '1px solid #ef4444' }
-    });
+  const confirmDeactivation = async () => {
+    try {
+      await persistWinterMode({
+        ...winterMode,
+        enabled: false,
+        time: winterTimeDraft || winterMode.time
+      });
+      setShowConfirmModal(false);
+      toast.warning("Modo Inverno desativado manualmente", {
+        style: { background: '#18181b', color: '#ef4444', border: '1px solid #ef4444' }
+      });
+    } catch (error) {
+      console.error("Erro ao desativar Modo Inverno:", error);
+      toast.error("Erro ao desativar Modo Inverno.");
+    }
   };
-
-  useEffect(() => {
-    localStorage.setItem('kolmena_winter_mode_active', JSON.stringify(isWinterModeActive));
-  }, [isWinterModeActive]);
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("Todas Unidades");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -238,6 +339,127 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
 
     return () => unsubscribe();
   }, [user?.uid, user?.isDemo]);
+
+  useEffect(() => {
+    if (hasUserWinterMode) return;
+
+    const source = hives.find((hive) => hive.winterMode?.enabled) ?? hives[0];
+    const nextWinterMode = source?.winterMode
+      ? {
+          enabled: Boolean(source.winterMode.enabled),
+          time: source.winterMode.time || defaultWinterMode.time,
+          activeUntilMonth: source.winterMode.activeUntilMonth || 5,
+          waterDurationMs: source.winterMode.waterDurationMs || 2000,
+          foodDurationMs: source.winterMode.foodDurationMs || 3000,
+          lastRunDate: typeof source.winterMode.lastRunDate === "string" ? source.winterMode.lastRunDate : undefined,
+          autoDisabledAt: source.winterMode.autoDisabledAt ?? undefined
+        }
+      : defaultWinterMode;
+
+    setWinterMode(nextWinterMode);
+    setWinterTimeDraft(nextWinterMode.time);
+  }, [hives, hasUserWinterMode]);
+
+  useEffect(() => {
+    if (!winterMode.enabled || !shouldAutoDisableWinterMode(new Date(), winterMode.activeUntilMonth)) return;
+
+    persistWinterMode({
+      ...winterMode,
+      enabled: false,
+      autoDisabledAt: serverTimestamp()
+    }).then(() => {
+      toast.info("Modo Inverno desligado automaticamente após o mês de maio.");
+    }).catch((error) => {
+      console.error("Erro ao desligar Modo Inverno automaticamente:", error);
+    });
+  }, [winterMode.enabled, winterMode.activeUntilMonth]);
+
+  useEffect(() => {
+    if (!winterMode.enabled || hives.length === 0) return;
+
+    const runWinterFeedingIfNeeded = async () => {
+      const now = new Date();
+      if (!isWinterModeSeason(now, winterMode.activeUntilMonth)) return;
+
+      const [targetHours, targetMinutes] = (winterMode.time || defaultWinterMode.time).split(":").map(Number);
+      if (now.getHours() !== targetHours || now.getMinutes() !== targetMinutes) return;
+
+      const todayKey = getLocalDateKey(now);
+      if (winterMode.lastRunDate === todayKey || winterRunInProgressRef.current) return;
+
+      winterRunInProgressRef.current = true;
+
+      try {
+        const startTime = Timestamp.now();
+        const waterDuration = winterMode.waterDurationMs || defaultWinterMode.waterDurationMs;
+        const foodDuration = winterMode.foodDurationMs || defaultWinterMode.foodDurationMs;
+
+        await Promise.all(hives.map((hive) => updateDoc(doc(db, "colmeias", hive.id), {
+          "controls.agua": true,
+          "controls.racao": true,
+          "lastFeedingTime.water": startTime,
+          "lastFeedingTime.food": startTime,
+          "winterMode.lastRunDate": todayKey,
+          eventos: arrayUnion({
+            tipo: "modo_inverno",
+            acao: true,
+            timestamp: startTime,
+            origem: "app",
+            horario: winterMode.time
+          }),
+          atualizadoEm: serverTimestamp()
+        })));
+
+        await persistWinterMode({
+          ...winterMode,
+          lastRunDate: todayKey
+        });
+
+        window.setTimeout(() => {
+          hives.forEach((hive) => {
+            updateDoc(doc(db, "colmeias", hive.id), {
+              "controls.agua": false,
+              eventos: arrayUnion({
+                tipo: "agua",
+                acao: false,
+                timestamp: Timestamp.now(),
+                origem: "modo_inverno"
+              }),
+              atualizadoEm: serverTimestamp()
+            }).catch((error) => console.error("Erro ao finalizar água do Modo Inverno:", error));
+          });
+        }, waterDuration);
+
+        window.setTimeout(() => {
+          hives.forEach((hive) => {
+            updateDoc(doc(db, "colmeias", hive.id), {
+              "controls.racao": false,
+              eventos: arrayUnion({
+                tipo: "racao",
+                acao: false,
+                timestamp: Timestamp.now(),
+                origem: "modo_inverno"
+              }),
+              atualizadoEm: serverTimestamp()
+            }).catch((error) => console.error("Erro ao finalizar ração do Modo Inverno:", error));
+          });
+        }, foodDuration);
+
+        toast.success("Suplementação do Modo Inverno executada.");
+      } catch (error) {
+        console.error("Erro ao executar Modo Inverno:", error);
+        toast.error("Erro ao executar Modo Inverno.");
+      } finally {
+        window.setTimeout(() => {
+          winterRunInProgressRef.current = false;
+        }, 65000);
+      }
+    };
+
+    runWinterFeedingIfNeeded();
+    const interval = window.setInterval(runWinterFeedingIfNeeded, 60000);
+    return () => window.clearInterval(interval);
+  }, [hives, winterMode]);
 
   const filteredHives = useMemo(() => {
     if (!searchTerm) return hives;
@@ -536,6 +758,10 @@ const handleConfirmCleaning = async (id: string) => {
           agua: false,
           racao: false
         },
+        winterMode: {
+          ...winterMode,
+          updatedAt: serverTimestamp()
+        },
         lastFeedingTime: {
           food: null,
           water: null
@@ -596,6 +822,39 @@ const handleConfirmCleaning = async (id: string) => {
     }
   };
 
+  const requestDeleteHive = (id: string) => {
+    const hive = hives.find(h => h.id === id);
+    if (!hive) return;
+    setHivePendingDelete(hive);
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user?.uid || user?.isDemo) {
+      toast.error("Conta demo não pode ser deletada.");
+      return;
+    }
+
+    if (!auth.currentUser) {
+      toast.error("Sessão inválida. Entre novamente para deletar a conta.");
+      return;
+    }
+
+    try {
+      const ownedHives = hives.filter((hive) => hive.usuarioId === user.uid);
+      await Promise.all(ownedHives.map((hive) => deleteDoc(doc(db, "colmeias", hive.id))));
+      await deleteDoc(doc(db, "usuarios", user.uid));
+      await deleteUser(auth.currentUser);
+      toast.info("Conta deletada com sucesso.");
+    } catch (error) {
+      console.error("Erro ao deletar conta:", error);
+      if (error instanceof FirebaseError && error.code === "auth/requires-recent-login") {
+        toast.error("Entre novamente na conta e tente deletar de novo.");
+        return;
+      }
+      toast.error("Erro ao deletar conta.");
+    }
+  };
+
   const renderCleaningFrequency = (alignment: "start" | "end" = "end") => {
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date();
@@ -634,7 +893,30 @@ const handleConfirmCleaning = async (id: string) => {
   };
 
   if (selectedHive) {
-    return <HiveDetails hive={selectedHive} userId={user?.uid} onBack={() => setSelectedHive(null)} showSobreninho={accountSettings.showSobreninho} />;
+    return (
+      <>
+        <HiveDetails
+          hive={selectedHive}
+          userId={user?.uid}
+          onBack={() => setSelectedHive(null)}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onDelete={handleDeleteHive}
+          showSobreninho={accountSettings.showSobreninho}
+        />
+        <Settings
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          user={user}
+          onLogout={onLogout || (() => {})}
+          onDeleteAccount={handleDeleteAccount}
+          onUpdateUser={onUpdateUser || (() => {})}
+          maintenanceSettings={maintenanceSettings}
+          onUpdateMaintenance={setMaintenanceSettings}
+          accountSettings={accountSettings}
+          onUpdateAccountSettings={handleUpdateAccountSettings}
+        />
+      </>
+    );
   }
 
   if (currentView === 'mission') {
@@ -776,8 +1058,8 @@ const handleConfirmCleaning = async (id: string) => {
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
-            <div className="flex items-center gap-2 p-1.5 bg-zinc-100 border border-zinc-200 rounded-xl">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl shadow-zinc-900/5">
+            <div className="flex items-center gap-2 p-1.5 bg-zinc-50 border-b sm:border-b-0 sm:border-r border-zinc-200">
               <button 
                 onClick={() => setViewMode("grid")} 
                 className={cn(
@@ -800,14 +1082,14 @@ const handleConfirmCleaning = async (id: string) => {
               </button>
             </div>
 
-            <div className="relative flex-1 group max-w-xs">
+            <div className="relative flex-1 group sm:w-72">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 group-focus-within:text-[#FFA500] transition-colors" />
               <input 
                 type="text" 
                 placeholder="Buscar unidade..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="bg-white border border-zinc-300 rounded-xl pl-12 pr-12 py-3 text-sm text-black placeholder:text-zinc-400 focus:border-[#FFA500] focus:ring-2 focus:ring-[#FFA500]/20 focus:outline-none w-full transition-all"
+                className="bg-white border-0 pl-12 pr-12 py-4 text-sm text-black placeholder:text-zinc-400 focus:ring-2 focus:ring-[#FFA500]/20 focus:outline-none w-full transition-all"
               />
               {searchTerm && (
                 <button onClick={() => setSearchTerm("")} className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-[#FFA500] transition-colors">
@@ -818,7 +1100,7 @@ const handleConfirmCleaning = async (id: string) => {
 
             <button 
               onClick={() => setIsAdding(true)}
-              className="bg-[#FFA500] text-black px-6 py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-[#FF9500] transition-all active:scale-95 shadow-lg shadow-[#FFA500]/20 font-bold text-sm whitespace-nowrap"
+              className="bg-[#FFA500] text-black px-6 py-4 flex items-center justify-center gap-2 hover:bg-[#FF9500] transition-all active:scale-95 font-bold text-sm whitespace-nowrap border-t sm:border-t-0 sm:border-l border-amber-600/20"
             >
               <Plus className="w-5 h-5" />
               Nova Unidade
@@ -846,7 +1128,7 @@ const handleConfirmCleaning = async (id: string) => {
                         <HiveCard 
                           hive={hive} 
                           onViewDetails={(h) => setSelectedHive(h)} 
-                          onDelete={handleDeleteHive}
+                          onDelete={requestDeleteHive}
                           onConfirmCleaning={handleConfirmCleaning} 
                           showSobreninho={accountSettings.showSobreninho}
                         />
@@ -869,7 +1151,7 @@ const handleConfirmCleaning = async (id: string) => {
                         <HiveListRow 
                           hive={hive} 
                           onViewDetails={(h) => setSelectedHive(h)} 
-                          onDelete={handleDeleteHive}
+                          onDelete={requestDeleteHive}
                           onConfirmCleaning={handleConfirmCleaning} 
                         />
                       </motion.div>
@@ -892,6 +1174,7 @@ const handleConfirmCleaning = async (id: string) => {
         onClose={() => setIsSettingsOpen(false)}
         user={user}
         onLogout={onLogout || (() => {})}
+        onDeleteAccount={handleDeleteAccount}
         onUpdateUser={onUpdateUser || (() => {})}
         maintenanceSettings={maintenanceSettings}
         onUpdateMaintenance={setMaintenanceSettings}
@@ -991,6 +1274,51 @@ const handleConfirmCleaning = async (id: string) => {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {hivePendingDelete && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setHivePendingDelete(null)}
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              className="relative w-full max-w-sm bg-white dark:bg-zinc-950 border border-red-200 dark:border-red-900/60 rounded-3xl p-6 shadow-2xl"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-red-500/10 text-red-500 flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-black text-center text-zinc-900 dark:text-white uppercase tracking-wider mb-2">Apagar colmeia?</h3>
+              <p className="text-xs text-zinc-500 text-center leading-relaxed mb-6">
+                A unidade {hivePendingDelete.name} será removida do banco de dados. Não será possível desfazer.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setHivePendingDelete(null)}
+                  className="h-11 rounded-xl bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 text-[10px] font-black uppercase tracking-widest"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    await handleDeleteHive(hivePendingDelete.id);
+                    setHivePendingDelete(null);
+                  }}
+                  className="h-11 rounded-xl bg-red-500 text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-red-500/20"
+                >
+                  Apagar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Mobile Menu Backdrop */}
       <AnimatePresence>
         {isMobileMenuOpen && (
@@ -1070,7 +1398,7 @@ const handleConfirmCleaning = async (id: string) => {
                   
                   <div className="space-y-4">
                     <p className="text-[11px] sm:text-xs text-zinc-500 dark:text-zinc-400 uppercase tracking-wider leading-relaxed">
-                      O sistema realiza a suplementação alimentar automática. A desativação ocorre de forma automática ao final do período (maio), mas o controle manual permanece disponível.
+                      O sistema executa a suplementação automática no horário confirmado e mantém a configuração vigente até 31 de maio. Após maio, o protocolo é desligado automaticamente.
                     </p>
                     
                     <div className="pt-4 flex flex-col gap-4">
@@ -1078,7 +1406,7 @@ const handleConfirmCleaning = async (id: string) => {
                         <div className="flex items-center gap-3">
                           <div className={cn(
                             "w-10 h-10 rounded-xl flex items-center justify-center transition-colors",
-                            isWinterModeActive ? "bg-amber-500/20 text-amber-500" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-400"
+                            winterMode.enabled ? "bg-amber-500/20 text-amber-500" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-400"
                           )}>
                             <Cpu className="w-5 h-5" />
                           </div>
@@ -1086,9 +1414,9 @@ const handleConfirmCleaning = async (id: string) => {
                             <span className="text-[10px] text-zinc-900 dark:text-white font-black uppercase tracking-widest block">Sistema</span>
                             <span className={cn(
                               "text-[9px] font-bold uppercase tracking-tighter",
-                              isWinterModeActive ? "text-amber-500" : "text-zinc-500"
+                              winterMode.enabled ? "text-amber-500" : "text-zinc-500"
                             )}>
-                              {isWinterModeActive ? "Protocolo Ativo" : "Protocolo Pausado"}
+                              {winterMode.enabled ? "Protocolo Ativo" : "Protocolo Pausado"}
                             </span>
                           </div>
                         </div>
@@ -1097,13 +1425,43 @@ const handleConfirmCleaning = async (id: string) => {
                           onClick={handleToggleWinterMode}
                           className={cn(
                             "relative w-12 h-6 rounded-full transition-colors duration-300 focus:outline-none cursor-pointer",
-                            isWinterModeActive ? "bg-amber-500" : "bg-zinc-300 dark:bg-zinc-800"
+                            winterMode.enabled ? "bg-amber-500" : "bg-zinc-300 dark:bg-zinc-800"
                           )}
                         >
                           <div className={cn(
                             "absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-300 shadow-sm",
-                            isWinterModeActive ? "translate-x-6" : "translate-x-0"
+                            winterMode.enabled ? "translate-x-6" : "translate-x-0"
                           )} />
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        <TechInput
+                          label="Horário da Suplementação"
+                          type="time"
+                          icon={<Clock className="w-4 h-4" />}
+                          value={winterTimeDraft}
+                          onChange={(e) => setWinterTimeDraft(e.target.value)}
+                        />
+                        <button
+                          onClick={async () => {
+                            try {
+                              await persistWinterMode({
+                                ...winterMode,
+                                time: winterTimeDraft || defaultWinterMode.time,
+                                activeUntilMonth: 5,
+                                waterDurationMs: 2000,
+                                foodDurationMs: 3000
+                              });
+                              toast.success("Horário do Modo Inverno salvo.");
+                            } catch (error) {
+                              console.error("Erro ao salvar horário do Modo Inverno:", error);
+                              toast.error("Erro ao salvar horário.");
+                            }
+                          }}
+                          className="w-full h-11 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-black text-[10px] font-black uppercase tracking-[0.2em] hover:opacity-90 transition-opacity"
+                        >
+                          Confirmar Horário
                         </button>
                       </div>
 

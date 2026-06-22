@@ -11,7 +11,7 @@ import {
   AreaChart,
   Area
 } from "recharts";
-import { ArrowLeft, Thermometer, Droplets, Volume2, Sun, Droplet, UtensilsCrossed } from "lucide-react";
+import { ArrowLeft, Thermometer, Droplets, Volume2, Sun, Droplet, UtensilsCrossed, MoreVertical, Settings as SettingsIcon, Trash2, X, AlertTriangle } from "lucide-react";
 import { HiveData } from "./hive-card";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -73,10 +73,12 @@ interface HiveDetailsProps {
   hive: HiveData;
   userId?: string;
   onBack: () => void;
+  onOpenSettings?: () => void;
+  onDelete?: (id: string) => void | Promise<void>;
   showSobreninho?: boolean;
 }
 
-export function HiveDetails({ hive, userId, onBack, showSobreninho = true }: HiveDetailsProps) {
+export function HiveDetails({ hive, userId, onBack, onOpenSettings, onDelete, showSobreninho = true }: HiveDetailsProps) {
   // Inicialização segura com fallbacks explícitos
   const [hiveData, setHiveData] = useState<HiveData>(() => ({
     id: hive?.id || "ID_DESCONHECIDO",
@@ -91,6 +93,8 @@ export function HiveDetails({ hive, userId, onBack, showSobreninho = true }: Hiv
   }));
 
   const [selectedChart, setSelectedChart] = useState<MetricId | null>("tempN");
+  const [isActionsOpen, setIsActionsOpen] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
  
   const [activeControls, setActiveControls] = useState({
     agua: false,
@@ -284,16 +288,54 @@ export function HiveDetails({ hive, userId, onBack, showSobreninho = true }: Hiv
       <div className="max-w-7xl mx-auto px-4 py-6 sm:py-10 space-y-8">
        
         {/* Topo com botão de voltar */}
-        <div className="flex items-center gap-4">
-          <button
-            onClick={onBack}
-            className="p-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shadow-sm"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h1 className="text-3xl font-black tracking-tight">{hiveData.name}</h1>
-            <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">Firebase Conectado • REF: {hiveData.id}</p>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <button
+              onClick={onBack}
+              className="p-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shadow-sm shrink-0"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="min-w-0">
+              <h1 className="text-3xl font-black tracking-tight truncate">{hiveData.name}</h1>
+              <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider truncate">Firebase Conectado • REF: {hiveData.id}</p>
+            </div>
+          </div>
+          <div className="relative shrink-0">
+            <button
+              onClick={() => setIsActionsOpen((current) => !current)}
+              className="p-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shadow-sm"
+              aria-label="Abrir ações da colmeia"
+            >
+              <MoreVertical className="w-5 h-5" />
+            </button>
+
+            {isActionsOpen && (
+              <div className="absolute right-0 top-14 z-40 w-56 overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-2xl shadow-zinc-900/15">
+                <button
+                  onClick={() => {
+                    setIsActionsOpen(false);
+                    onOpenSettings?.();
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left text-[11px] font-black uppercase tracking-widest text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                >
+                  <SettingsIcon className="w-4 h-4 text-amber-500" />
+                  Configurações
+                </button>
+                {onDelete && (
+                  <button
+                    onClick={() => {
+                      setIsActionsOpen(false);
+                      setShowDeleteConfirm(true);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left text-[11px] font-black uppercase tracking-widest text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 border-t border-zinc-100 dark:border-zinc-900"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Apagar Colmeia
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -430,6 +472,57 @@ export function HiveDetails({ hive, userId, onBack, showSobreninho = true }: Hiv
         </div>
 
       </div>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowDeleteConfirm(false)}
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 12 }}
+            className="relative w-full max-w-sm bg-white dark:bg-zinc-950 border border-red-200 dark:border-red-900/60 rounded-3xl p-6 shadow-2xl"
+          >
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              className="absolute right-4 top-4 p-2 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+              aria-label="Fechar confirmação"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="w-12 h-12 rounded-2xl bg-red-500/10 text-red-500 flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-black text-center text-zinc-900 dark:text-white uppercase tracking-wider mb-2">Apagar colmeia?</h3>
+            <p className="text-xs text-zinc-500 text-center leading-relaxed mb-6">
+              A unidade {hiveData.name} será removida do banco junto com o vínculo da sua conta.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="h-11 rounded-xl bg-zinc-100 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 text-[10px] font-black uppercase tracking-widest"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  await onDelete?.(hiveData.id);
+                  setShowDeleteConfirm(false);
+                  onBack();
+                }}
+                className="h-11 rounded-xl bg-red-500 text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-red-500/20"
+              >
+                Apagar
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

@@ -46,6 +46,15 @@ export function mapHiveData(id: string, data: DocumentData): HiveData {
       agua: Boolean(data.controls?.agua),
       racao: Boolean(data.controls?.racao)
     },
+    winterMode: {
+      enabled: Boolean(data.winterMode?.enabled),
+      time: typeof data.winterMode?.time === "string" ? data.winterMode.time : "06:00",
+      activeUntilMonth: numberOrZero(data.winterMode?.activeUntilMonth) || 5,
+      waterDurationMs: numberOrZero(data.winterMode?.waterDurationMs) || 2000,
+      foodDurationMs: numberOrZero(data.winterMode?.foodDurationMs) || 3000,
+      lastRunDate: typeof data.winterMode?.lastRunDate === "string" ? data.winterMode.lastRunDate : undefined,
+      autoDisabledAt: data.winterMode?.autoDisabledAt ?? null
+    },
     lastFeedingTime: {
       food: data.lastFeedingTime?.food ?? null,
       water: data.lastFeedingTime?.water ?? null
