@@ -1034,37 +1034,42 @@ const handleConfirmCleaning = async (id: string) => {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-8 sm:py-12 relative z-10">
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-8 mb-12 sm:mb-16">
-          <div className="space-y-3">
-            <div className={cn(
-              "inline-flex items-center gap-2 px-3 py-1 rounded-full transition-colors duration-500",
-              isOnline ? "bg-amber-500/10 border border-amber-500/20" : "bg-red-500/10 border border-red-500/20"
-            )}>
-              <div className={cn(
-                "w-1.5 h-1.5 rounded-full",
-                isOnline ? "bg-amber-500 animate-pulse" : "bg-red-500"
-              )} />
-              <span className={cn(
-                "text-[9px] uppercase font-black tracking-[0.2em]",
-                isOnline ? "text-amber-600 dark:text-amber-500" : "text-red-600 dark:text-red-500"
-              )}>
-                {isOnline ? "Fluxo de Dados em Tempo Real" : "Link Offline - Sem Sincronia"}
-              </span>
-            </div>
+          <div className="space-y-4">
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tighter text-zinc-900 dark:text-white">
-              SISTEMA DE <span className="text-amber-500">CONTROLE</span>
+              SISTEMA DE <span className="text-[#FFA500]">CONTROLE</span>
             </h1>
-            <p className="text-xs sm:text-sm text-zinc-500 uppercase tracking-[0.3em] font-mono">
-              Monitoramento Ativo: {hives.length} Unidades Operacionais
-            </p>
+            <div className="flex items-center gap-4">
+              <div className="h-12 px-6 flex flex-col items-center justify-center border-2 border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white dark:bg-zinc-950 shadow-sm min-w-[100px]">
+                <span className="text-2xl sm:text-3xl font-black tracking-tight text-[#FFA500]" style={{ fontFamily: "'Bebas Neue', sans-serif" }}>
+                  {String(hives.length).padStart(2, '0')}
+                </span>
+                <span className="text-[8px] uppercase font-bold text-zinc-500 tracking-[0.2em] leading-none mt-0.5">Unidades</span>
+              </div>
+              <div className="h-12 px-6 flex flex-col items-center justify-center border-2 border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white dark:bg-zinc-950 shadow-sm min-w-[100px]">
+                <div className="flex items-center gap-1.5">
+                  <div className={cn(
+                    "w-2 h-2 rounded-full",
+                    isOnline ? "bg-emerald-500 animate-pulse" : "bg-red-500"
+                  )} />
+                  <span className={cn(
+                    "text-sm font-black uppercase tracking-wider",
+                    isOnline ? "text-emerald-600 dark:text-emerald-500" : "text-red-600 dark:text-red-500"
+                  )}>
+                    {isOnline ? "ONLINE" : "OFFLINE"}
+                  </span>
+                </div>
+                <span className="text-[8px] uppercase font-bold text-zinc-500 tracking-[0.2em] leading-none mt-1">Status</span>
+              </div>
+            </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl shadow-zinc-900/5">
-            <div className="flex items-center gap-2 p-1.5 bg-zinc-50 border-b sm:border-b-0 sm:border-r border-zinc-200">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center overflow-hidden rounded-2xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xl shadow-zinc-900/5">
+            <div className="flex items-center">
               <button 
                 onClick={() => setViewMode("grid")} 
                 className={cn(
-                  "px-4 py-2 rounded-lg transition-all text-sm font-medium flex items-center gap-2",
-                  viewMode === "grid" ? "bg-[#FFA500] text-black shadow-sm" : "text-zinc-600 hover:text-black"
+                  "px-5 py-4 transition-all text-sm font-medium flex items-center gap-2 border-r-2 border-zinc-200 dark:border-zinc-800",
+                  viewMode === "grid" ? "bg-[#FFA500] text-black shadow-sm" : "text-zinc-600 hover:text-black hover:bg-zinc-50 dark:hover:bg-zinc-900"
                 )}
               >
                 <LayoutGrid className="w-4 h-4" />
@@ -1073,8 +1078,8 @@ const handleConfirmCleaning = async (id: string) => {
               <button 
                 onClick={() => setViewMode("list")} 
                 className={cn(
-                  "px-4 py-2 rounded-lg transition-all text-sm font-medium flex items-center gap-2",
-                  viewMode === "list" ? "bg-[#FFA500] text-black shadow-sm" : "text-zinc-600 hover:text-black"
+                  "px-5 py-4 transition-all text-sm font-medium flex items-center gap-2 border-r-2 border-zinc-200 dark:border-zinc-800",
+                  viewMode === "list" ? "bg-[#FFA500] text-black shadow-sm" : "text-zinc-600 hover:text-black hover:bg-zinc-50 dark:hover:bg-zinc-900"
                 )}
               >
                 <List className="w-4 h-4" />
@@ -1082,14 +1087,14 @@ const handleConfirmCleaning = async (id: string) => {
               </button>
             </div>
 
-            <div className="relative flex-1 group sm:w-72">
+            <div className="relative flex-1 group sm:w-72 border-t-2 sm:border-t-0 border-zinc-200 dark:border-zinc-800">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 group-focus-within:text-[#FFA500] transition-colors" />
               <input 
                 type="text" 
                 placeholder="Buscar unidade..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="bg-white border-0 pl-12 pr-12 py-4 text-sm text-black placeholder:text-zinc-400 focus:ring-2 focus:ring-[#FFA500]/20 focus:outline-none w-full transition-all"
+                className="bg-white dark:bg-zinc-950 border-0 pl-12 pr-12 py-4 text-sm text-black dark:text-white placeholder:text-zinc-400 focus:ring-2 focus:ring-[#FFA500]/20 focus:outline-none w-full transition-all"
               />
               {searchTerm && (
                 <button onClick={() => setSearchTerm("")} className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-[#FFA500] transition-colors">
@@ -1100,7 +1105,7 @@ const handleConfirmCleaning = async (id: string) => {
 
             <button 
               onClick={() => setIsAdding(true)}
-              className="bg-[#FFA500] text-black px-6 py-4 flex items-center justify-center gap-2 hover:bg-[#FF9500] transition-all active:scale-95 font-bold text-sm whitespace-nowrap border-t sm:border-t-0 sm:border-l border-amber-600/20"
+              className="bg-[#FFA500] text-black px-6 py-4 flex items-center justify-center gap-2 hover:bg-[#FF9500] transition-all active:scale-95 font-bold text-sm whitespace-nowrap border-t-2 sm:border-t-0 sm:border-l-2 border-zinc-200 dark:border-zinc-800"
             >
               <Plus className="w-5 h-5" />
               Nova Unidade
