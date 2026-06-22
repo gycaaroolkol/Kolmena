@@ -95,13 +95,7 @@ export function HiveDetails({ hive, userId, onBack, onOpenSettings, onDelete, sh
   const [selectedChart, setSelectedChart] = useState<MetricId | null>("tempN");
   const [isActionsOpen, setIsActionsOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [animateChart, setAnimateChart] = useState(true);
 
-  useEffect(() => {
-    const timer = setTimeout(() => setAnimateChart(false), 600);
-    return () => clearTimeout(timer);
-  }, []);
- 
   const [activeControls, setActiveControls] = useState({
     agua: false,
     racao: false
@@ -383,7 +377,7 @@ export function HiveDetails({ hive, userId, onBack, onOpenSettings, onDelete, sh
               {chartHistory.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   {selectedMetric.chartType === "area" ? (
-                    <AreaChart data={chartHistory} isAnimationActive={animateChart} animationDuration={500}>
+                    <AreaChart data={chartHistory}>
                       <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                       <XAxis dataKey="day" stroke="#71717a" fontSize={11} tickLine={false} />
                       <YAxis stroke="#71717a" fontSize={11} tickLine={false} domain={['auto', 'auto']} />
@@ -395,8 +389,6 @@ export function HiveDetails({ hive, userId, onBack, onOpenSettings, onDelete, sh
                         stroke={selectedMetric.hexColor}
                         fill="url(#colorDynamicMetric)"
                         strokeWidth={3}
-                        animationDuration={500}
-                        isAnimationActive={animateChart}
                       />
                       <defs>
                         <linearGradient id="colorDynamicMetric" x1="0" y1="0" x2="0" y2="1">
@@ -406,7 +398,7 @@ export function HiveDetails({ hive, userId, onBack, onOpenSettings, onDelete, sh
                       </defs>
                     </AreaChart>
                   ) : (
-                    <LineChart data={chartHistory} isAnimationActive={animateChart} animationDuration={500}>
+                    <LineChart data={chartHistory}>
                       <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                       <XAxis dataKey="day" stroke="#71717a" fontSize={11} tickLine={false} />
                       <YAxis stroke="#71717a" fontSize={11} tickLine={false} domain={['auto', 'auto']} />
@@ -417,9 +409,8 @@ export function HiveDetails({ hive, userId, onBack, onOpenSettings, onDelete, sh
                         name={selectedMetric.label}
                         stroke={selectedMetric.hexColor}
                         strokeWidth={3}
-                        dot={{ r: 4, fill: selectedMetric.hexColor }}
-                        animationDuration={500}
-                        isAnimationActive={animateChart}
+                        dot={false}
+                        activeDot={{ r: 4, fill: selectedMetric.hexColor, strokeWidth: 2, stroke: "#fff" }}
                       />
                     </LineChart>
                   )}
