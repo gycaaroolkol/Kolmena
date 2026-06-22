@@ -54,6 +54,8 @@ Os graficos do dashboard usam `colmeias/{hiveId}.leituras`. A leitura mais recen
 
 ## Regras de seguranca
 
+As regras estao versionadas em `firestore.rules`. Publicar a app na Vercel nao publica regras do Firestore; depois de alterar regras, publique pelo Console do Firebase ou Firebase CLI.
+
 No Console do Firebase, abra Firestore Database > Rules e publique:
 
 ```js
@@ -79,16 +81,10 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.usuarioId == request.auth.uid;
 
-      allow get: if signedIn()
-        && (
-          !exists(/databases/$(database)/documents/colmeias/$(hiveId))
-          || resource.data.usuarioId == request.auth.uid
-        );
-
-      allow list: if signedIn()
+      allow get, delete: if signedIn()
         && resource.data.usuarioId == request.auth.uid;
 
-      allow delete: if signedIn()
+      allow list: if signedIn()
         && resource.data.usuarioId == request.auth.uid;
 
       allow update: if signedIn()
@@ -99,7 +95,13 @@ service cloud.firestore {
 }
 ```
 
-Essas regras impedem que um usuario veja, edite ou remova colmeias de outra conta. O `allow get` em `colmeias` tambem permite que o app consulte um ID ainda inexistente antes de cria-lo; sem isso, o cadastro de uma nova colmeia pode falhar com `permission-denied` no `getDoc`.
+Essas regras impedem que um usuario veja, edite ou remova colmeias de outra conta. O cadastro da colmeia nao faz leitura previa do documento; ele cria `colmeias/{hiveId}` diretamente e depende da regra `allow create`.
+
+Para publicar via CLI:
+
+```sh
+firebase deploy --only firestore:rules
+```
 
 ## Fluxo do app
 

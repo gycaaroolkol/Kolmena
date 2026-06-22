@@ -19,7 +19,6 @@ import {
   collection,
   deleteDoc,
   doc,
-  getDoc,
   onSnapshot,
   query,
   serverTimestamp,
@@ -475,21 +474,14 @@ const handleConfirmCleaning = async (id: string) => {
     }
 
     const hiveId = newId.trim().toUpperCase();
+    if (hives.some((hive) => hive.id === hiveId)) {
+      toast.error("Essa unidade já está cadastrada na sua conta.");
+      return;
+    }
+
     const hiveRef = doc(db, "colmeias", hiveId);
 
     try {
-      const existingHive = await getDoc(hiveRef);
-      if (existingHive.exists()) {
-        const data = existingHive.data();
-        if (data.usuarioId !== user.uid) {
-          toast.error("Esse identificador já pertence a outra conta.");
-          return;
-        }
-
-        toast.error("Essa unidade já está cadastrada na sua conta.");
-        return;
-      }
-
       await setDoc(hiveRef, {
         apelido: newName.trim(),
         usuarioId: user.uid,
@@ -532,7 +524,7 @@ const handleConfirmCleaning = async (id: string) => {
     } catch (error) {
       console.error("Erro ao cadastrar colmeia:", error);
       if (error instanceof FirebaseError && error.code === "permission-denied") {
-        toast.error("Firestore negou o cadastro. Confira as rules de colmeias.");
+        toast.error("Firestore negou o cadastro. Confira as rules publicadas no Firebase.");
         return;
       }
 
