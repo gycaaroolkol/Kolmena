@@ -977,8 +977,8 @@ const handleConfirmCleaning = async (id: string) => {
           </div>
           
           {/* Navegação Desktop */}
-          <nav className="hidden lg:flex items-center">
-            {['Monitoramento', 'Nossa Missão', 'Modo Inverno', 'Configurações'].map((item, idx) => (
+          <nav className="hidden lg:flex items-center gap-1.5">
+            {['Monitoramento', 'Nossa Missão', 'Modo Inverno', 'Configurações'].map((item) => (
               <button 
                 key={item} 
                 onClick={() => {
@@ -988,10 +988,10 @@ const handleConfirmCleaning = async (id: string) => {
                   if (item === 'Configurações') setIsSettingsOpen(true);
                 }}
                 className={cn(
-                  "px-4 py-2 text-sm font-medium transition-all border-r-2 border-zinc-200 dark:border-zinc-800 last:border-r-0",
+                  "px-4 py-2 text-sm font-medium transition-all rounded-xl",
                   (item === 'Monitoramento' && currentView === 'dashboard') || (item === 'Nossa Missão' && currentView) 
-                    ? "text-[#FFA500]" 
-                    : "text-zinc-600 hover:text-black hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                    ? "text-[#FFA500] bg-[#FFA500]/10" 
+                    : "text-zinc-600 hover:text-black hover:bg-zinc-100 dark:hover:bg-zinc-900"
                 )}
               >
                 {item}
@@ -1003,7 +1003,7 @@ const handleConfirmCleaning = async (id: string) => {
           <div className="flex items-center">
             <button 
               onClick={() => setIsNotificationPanelOpen(true)}
-              className="p-2 text-zinc-600 hover:text-[#FFA500] transition-colors relative border-l-2 border-zinc-200 dark:border-zinc-800 ml-4"
+              className="p-2.5 text-zinc-600 hover:text-[#FFA500] transition-colors relative rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-900 ml-2"
             >
               <Bell className="w-5 h-5" />
               {notifications.some(n => !n.read) && (
@@ -1063,13 +1063,13 @@ const handleConfirmCleaning = async (id: string) => {
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center overflow-hidden rounded-2xl border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xl shadow-zinc-900/5">
-            <div className="flex items-center">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl shadow-zinc-900/5">
+            <div className="flex items-center gap-2 p-1.5 bg-zinc-50 border-b sm:border-b-0 sm:border-r border-zinc-200">
               <button 
                 onClick={() => setViewMode("grid")} 
                 className={cn(
-                  "px-5 py-4 transition-all text-sm font-medium flex items-center gap-2 border-r-2 border-zinc-200 dark:border-zinc-800",
-                  viewMode === "grid" ? "bg-[#FFA500] text-black shadow-sm" : "text-zinc-600 hover:text-black hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                  "px-4 py-2 rounded-lg transition-all text-sm font-medium flex items-center gap-2",
+                  viewMode === "grid" ? "bg-[#FFA500] text-black shadow-sm" : "text-zinc-600 hover:text-black"
                 )}
               >
                 <LayoutGrid className="w-4 h-4" />
@@ -1078,8 +1078,8 @@ const handleConfirmCleaning = async (id: string) => {
               <button 
                 onClick={() => setViewMode("list")} 
                 className={cn(
-                  "px-5 py-4 transition-all text-sm font-medium flex items-center gap-2 border-r-2 border-zinc-200 dark:border-zinc-800",
-                  viewMode === "list" ? "bg-[#FFA500] text-black shadow-sm" : "text-zinc-600 hover:text-black hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                  "px-4 py-2 rounded-lg transition-all text-sm font-medium flex items-center gap-2",
+                  viewMode === "list" ? "bg-[#FFA500] text-black shadow-sm" : "text-zinc-600 hover:text-black"
                 )}
               >
                 <List className="w-4 h-4" />
@@ -1087,14 +1087,14 @@ const handleConfirmCleaning = async (id: string) => {
               </button>
             </div>
 
-            <div className="relative flex-1 group sm:w-72 border-t-2 sm:border-t-0 border-zinc-200 dark:border-zinc-800">
+            <div className="relative flex-1 group sm:w-72">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 group-focus-within:text-[#FFA500] transition-colors" />
               <input 
                 type="text" 
                 placeholder="Buscar unidade..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="bg-white dark:bg-zinc-950 border-0 pl-12 pr-12 py-4 text-sm text-black dark:text-white placeholder:text-zinc-400 focus:ring-2 focus:ring-[#FFA500]/20 focus:outline-none w-full transition-all"
+                className="bg-white border-0 pl-12 pr-12 py-4 text-sm text-black placeholder:text-zinc-400 focus:ring-2 focus:ring-[#FFA500]/20 focus:outline-none w-full transition-all"
               />
               {searchTerm && (
                 <button onClick={() => setSearchTerm("")} className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-[#FFA500] transition-colors">
@@ -1105,7 +1105,7 @@ const handleConfirmCleaning = async (id: string) => {
 
             <button 
               onClick={() => setIsAdding(true)}
-              className="bg-[#FFA500] text-black px-6 py-4 flex items-center justify-center gap-2 hover:bg-[#FF9500] transition-all active:scale-95 font-bold text-sm whitespace-nowrap border-t-2 sm:border-t-0 sm:border-l-2 border-zinc-200 dark:border-zinc-800"
+              className="bg-[#FFA500] text-black px-6 py-4 flex items-center justify-center gap-2 hover:bg-[#FF9500] transition-all active:scale-95 font-bold text-sm whitespace-nowrap border-t sm:border-t-0 sm:border-l border-amber-600/20"
             >
               <Plus className="w-5 h-5" />
               Nova Unidade
