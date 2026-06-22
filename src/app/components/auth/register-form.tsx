@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { TechInput } from "@/app/components/ui/tech-input";
 import { TechButton } from "@/app/components/ui/tech-button";
-import { Mail, Lock, User, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, User } from "lucide-react";
 import { motion } from "motion/react";
 
 interface RegisterFormProps {
@@ -14,6 +14,7 @@ export function RegisterForm({ onSwitchToLogin, onGoogleRegister, onEmailRegiste
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,11 +69,22 @@ export function RegisterForm({ onSwitchToLogin, onGoogleRegister, onEmailRegiste
         
         <TechInput
           label="Senha"
-          type="password"
+          type={showPassword ? "text" : "password"}
           placeholder="••••••••"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           icon={<Lock className="w-5 h-5" />}
+          rightElement={
+            <button
+              type="button"
+              onClick={() => setShowPassword((current) => !current)}
+              aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+              aria-pressed={showPassword}
+              className="flex h-10 w-10 items-center justify-center rounded-md text-zinc-500 transition-colors hover:text-[#FFA500] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FFA500]/40"
+            >
+              {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+            </button>
+          }
           required
         />
 

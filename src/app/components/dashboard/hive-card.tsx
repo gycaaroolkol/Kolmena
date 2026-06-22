@@ -2,21 +2,42 @@ import React, { useState, useEffect } from "react";
 import { Thermometer, Droplets, Volume2, Sun, CheckCircle2, Droplet, UtensilsCrossed } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
-import { ref, set, onValue } from "firebase/database";
+import { arrayUnion, doc, serverTimestamp, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-
-// ID fixo conforme sua imagem para garantir a conexão
-const USER_ID = "krMVeLw23JZeovrdoMPCpI4lyzD2";
 
 export interface HiveData {
   id: string; // Ex: "MEL-001"
   name: string;
+  usuarioId?: string;
   temperaturaSobreninho: number;
   temperaturaNinho: number;
   umidadeSobreninho: number;
   umidadeNinho: number;
   ruido: number;
   lum: number;
+  controls?: {
+    agua?: boolean;
+    racao?: boolean;
+  };
+  lastFeedingTime?: {
+    food?: string | number | Date | Timestamp | null;
+    water?: string | number | Date | Timestamp | null;
+  };
+  leituras?: Array<{
+    TempN?: number;
+    tempSN?: number;
+    umidN?: number;
+    umidSN?: number;
+    lum?: number;
+    ruido?: number;
+    timestamp?: string | number | Date | Timestamp | null;
+  }>;
+  eventos?: Array<{
+    tipo?: "agua" | "racao" | string;
+    acao?: boolean;
+    timestamp?: string | number | Date | Timestamp | null;
+    origem?: string;
+  }>;
   status: "ideal" | "attention" | "critical";
   lastUpdate: string;
   lastCleaning: string;
@@ -63,58 +84,61 @@ function getCriticalStatus(label: string, value: number) {
 export function HiveCard({ hive, onViewDetails, onDelete, onConfirmCleaning }: HiveCardProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
  
-  // Estado para Sensores (Output)
-  const [sensorData, setSensorData] = useState({
-    TempN: 0,
-    tempSN: 0,
-    umidN: 0,
-    umidSN: 0,
-    ruido: 0,
-    lum: 0
-  });
+  const sensorData = {
+    TempN: hive.temperaturaNinho,
+    tempSN: hive.temperaturaSobreninho,
+    umidN: hive.umidadeNinho,
+    umidSN: hive.umidadeSobreninho,
+    ruido: hive.ruido,
+    lum: hive.lum
+  };
 
-  // Estado visual para os botões (Input)
   const [activeControls, setActiveControls] = useState({
-    agua: false,
-    racao: false
+    agua: hive.controls?.agua ?? false,
+    racao: hive.controls?.racao ?? false
   });
 
-  // --- 1. LISTENER EM TEMPO REAL (OUTPUT) ---
   useEffect(() => {
-    const sensorRef = ref(db, `usuarios/${USER_ID}/${hive.id}/Output`);
-
-    const unsubscribe = onValue(sensorRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        setSensorData({
-          TempN: data.TempN || 0,
-          tempSN: data.tempSN || 0,
-          umidN: data.umidN || 0,
-          umidSN: data.umidSN || 0,
-          ruido: data.ruido || 0,
-          lum: data.lum || 0
-        });
-      }
-    }, (error) => {
-      console.error("Erro no listener de sensores:", error);
+    setActiveControls({
+      agua: hive.controls?.agua ?? false,
+      racao: hive.controls?.racao ?? false
     });
+  }, [hive.controls?.agua, hive.controls?.racao]);
 
-    return () => unsubscribe();
-  }, [hive.id]);
-
-  // --- 2. CONTROLE DOS BOTÕES (INPUT) ---
   const toggleControl = async (controlName: "agua" | "racao", e: React.MouseEvent) => {
-    e.stopPropagation(); // Impede que o clique abra a tela de gráficos
-   
-    const controlRef = ref(db, `usuarios/${USER_ID}/${hive.id}/Input/${controlName}`);
+    e.stopPropagation();
+    const feedingKey = controlName === "agua" ? "water" : "food";
+    const hiveRef = doc(db, "colmeias", hive.id);
 
     try {
-      await set(controlRef, true);
       setActiveControls(prev => ({ ...prev, [controlName]: true }));
+      await updateDoc(hiveRef, {
+        [`controls.${controlName}`]: true,
+        [`lastFeedingTime.${feedingKey}`]: Timestamp.now(),
+        eventos: arrayUnion({
+          tipo: controlName,
+          acao: true,
+          timestamp: Timestamp.now(),
+          origem: "app"
+        }),
+        atualizadoEm: serverTimestamp()
+      });
 
       setTimeout(async () => {
-        await set(controlRef, false);
-        setActiveControls(prev => ({ ...prev, [controlName]: false }));
+        try {
+          await updateDoc(hiveRef, {
+            [`controls.${controlName}`]: false,
+            eventos: arrayUnion({
+              tipo: controlName,
+              acao: false,
+              timestamp: Timestamp.now(),
+              origem: "app"
+            }),
+            atualizadoEm: serverTimestamp()
+          });
+        } finally {
+          setActiveControls(prev => ({ ...prev, [controlName]: false }));
+        }
       }, 2000);
 
     } catch (error) {

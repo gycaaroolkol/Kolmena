@@ -3,7 +3,7 @@ import { HiveData } from "./hive-card";
 import { Thermometer, Droplets, Volume2, Sun, ChevronRight, Activity, Trash2, Zap, CheckCircle2, Clock, AlertCircle, Droplet, UtensilsCrossed } from "lucide-react";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
-import { ref, set, onValue } from "firebase/database";
+import { arrayUnion, doc, serverTimestamp, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 interface HiveListRowProps {
@@ -15,55 +15,41 @@ interface HiveListRowProps {
 
 export function HiveListRow({ hive, onViewDetails, onDelete, onConfirmCleaning }: HiveListRowProps) {
   const [controls, setControls] = useState({
-    water: false,
-    food: false,
+    agua: false,
+    racao: false,
     ...hive.controls
   });
 
-  // Sincronizar com Firebase
   useEffect(() => {
-    const controlsRef = ref(db, `hives/${hive.id}/controls`);
-    const unsubscribe = onValue(controlsRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setControls(prev => ({ ...prev, ...snapshot.val() }));
-      }
+    setControls({
+      agua: false,
+      racao: false,
+      ...hive.controls
     });
-    return () => unsubscribe();
-  }, [hive.id]);
+  }, [hive.controls?.agua, hive.controls?.racao]);
 
   const toggleControl = async (controlName: keyof typeof controls, e: React.MouseEvent) => {
     e.stopPropagation();
     const newValue = !controls[controlName];
     const updatedControls = { ...controls, [controlName]: newValue };
     setControls(updatedControls);
-    
-    // Salvar no localStorage como backup
+    const feedingKey = controlName === "agua" ? "water" : "food";
+
     try {
-      const storageKey = `hive_${hive.id}_controls`;
-      const feedingTimeKey = `hive_${hive.id}_feedingTime`;
-      
-      localStorage.setItem(storageKey, JSON.stringify(updatedControls));
-      
-      if (newValue) {
-        const feedingTimes = JSON.parse(localStorage.getItem(feedingTimeKey) || '{}');
-        feedingTimes[controlName] = Date.now();
-        localStorage.setItem(feedingTimeKey, JSON.stringify(feedingTimes));
-      }
+      await updateDoc(doc(db, "colmeias", hive.id), {
+        [`controls.${controlName}`]: newValue,
+        ...(newValue ? { [`lastFeedingTime.${feedingKey}`]: Timestamp.now() } : {}),
+        eventos: arrayUnion({
+          tipo: controlName,
+          acao: newValue,
+          timestamp: Timestamp.now(),
+          origem: "app"
+        }),
+        atualizadoEm: serverTimestamp()
+      });
     } catch (error) {
-      console.error("Erro ao salvar no localStorage:", error);
-    }
-    
-    // Tentar enviar para Firebase (opcional se houver permissão)
-    try {
-      await set(ref(db, `hives/${hive.id}/controls/${controlName}`), newValue);
-      
-      // Se estiver ligando o controle, salvar o timestamp
-      if (newValue) {
-        await set(ref(db, `hives/${hive.id}/lastFeedingTime/${controlName}`), Date.now());
-      }
-    } catch (error) {
-      // Silenciar erro do Firebase - já salvamos no localStorage
-      console.log(`Controle ${controlName} salvo localmente (Firebase offline)`);
+      setControls(controls);
+      console.error(`Erro ao atualizar controle ${controlName}:`, error);
     }
   };
 
@@ -239,10 +225,10 @@ export function HiveListRow({ hive, onViewDetails, onDelete, onConfirmCleaning }
         {/* COLUNA 2.5: Controles Compactos */}
         <div className="hidden xl:flex items-center gap-2 relative z-10">
           <button
-            onClick={(e) => toggleControl("water", e)}
+            onClick={(e) => toggleControl("agua", e)}
             className={cn(
               "p-2 rounded-lg transition-all duration-300 border",
-              controls.water
+              controls.agua
                 ? "bg-cyan-500/20 border-cyan-500/50 text-cyan-600"
                 : "bg-white border-zinc-200 text-zinc-400 hover:border-zinc-300"
             )}
@@ -251,10 +237,10 @@ export function HiveListRow({ hive, onViewDetails, onDelete, onConfirmCleaning }
             <Droplet className="w-4 h-4" />
           </button>
           <button
-            onClick={(e) => toggleControl("food", e)}
+            onClick={(e) => toggleControl("racao", e)}
             className={cn(
               "p-2 rounded-lg transition-all duration-300 border",
-              controls.food
+              controls.racao
                 ? "bg-red-500/20 border-red-500/50 text-red-600"
                 : "bg-white border-zinc-200 text-zinc-400 hover:border-zinc-300"
             )}

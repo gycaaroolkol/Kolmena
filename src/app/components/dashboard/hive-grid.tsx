@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
+import { FirebaseError } from "firebase/app";
 import { HiveCard, HiveData } from "./hive-card";
 import { HiveDetails } from "./hive-details";
 import { Mission } from "./mission";
@@ -12,23 +13,27 @@ import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import logoImage from '@/assets/69de2de8cbe1c6eb64f795e4bb75e930fcb77729.png';
-import { ref, onValue } from "firebase/database";
+import {
+  arrayRemove,
+  arrayUnion,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  Timestamp,
+  updateDoc,
+  where
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { mapHiveSnapshot, valueToMillis } from "./firestore-hive";
 
-const INITIAL_HIVE: HiveData = { 
-  id: "MEL-001", 
-  name: "Colmeia Melipona 1", 
-  status: "ideal", 
-  temperaturaNinho: 45,
-  temperaturaSobreninho: 32.8,
-  umidadeNinho: 62,
-  umidadeSobreninho: 58,
-  ruido: 45, 
-  lum: 880, 
-  lastUpdate: "new Date().toISOString()",
-  lastCleaning: new Date().toISOString(), 
-};
-
+function getFirebaseErrorCode(error: unknown) {
+  return error instanceof FirebaseError ? error.code : "unknown";
+}
 
 interface DashboardProps {
   onLogout?: () => void;
@@ -38,32 +43,13 @@ interface DashboardProps {
 
 export function Dashboard({ onLogout, user, onUpdateUser }: DashboardProps) {
 
-  const [hives, setHives] = useState<HiveData[]>(() => {
-    // Carrega as colmeias do localStorage para persistir as datas de limpeza
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('kolmena_hives');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          return [INITIAL_HIVE];
-        }
-      }
-    }
-    return [INITIAL_HIVE];
-  });
+  const [hives, setHives] = useState<HiveData[]>([]);
+  const [isLoadingHives, setIsLoadingHives] = useState(true);
   
   const [selectedHive, setSelectedHive] = useState<HiveData | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
-  
-  // Persiste as colmeias no localStorage sempre que houver mudanças
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('kolmena_hives', JSON.stringify(hives));
-    }
-  }, [hives]);
   
   // Maintenance Settings
   const [maintenanceSettings, setMaintenanceSettings] = useState(() => {
@@ -172,6 +158,41 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
     };
   }, []);
 
+  useEffect(() => {
+    if (!user?.uid || user?.isDemo) {
+      setHives([]);
+      setSelectedHive(null);
+      setIsLoadingHives(false);
+      return;
+    }
+
+    setIsLoadingHives(true);
+    const hivesQuery = query(collection(db, "colmeias"), where("usuarioId", "==", user.uid));
+
+    const unsubscribe = onSnapshot(
+      hivesQuery,
+      (snapshot) => {
+        const nextHives = snapshot.docs
+          .map(mapHiveSnapshot)
+          .sort((a, b) => a.id.localeCompare(b.id));
+
+        setHives(nextHives);
+        setSelectedHive((current) => {
+          if (!current) return null;
+          return nextHives.find((hive) => hive.id === current.id) ?? null;
+        });
+        setIsLoadingHives(false);
+      },
+      (error) => {
+        console.error("Erro ao carregar colmeias do Firestore:", error);
+        toast.error("Erro ao carregar suas colmeias.");
+        setIsLoadingHives(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user?.uid, user?.isDemo]);
+
   const filteredHives = useMemo(() => {
     if (!searchTerm) return hives;
     const term = searchTerm.toLowerCase().trim();
@@ -210,33 +231,19 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
       const twoDaysInMs = 2 * 24 * 60 * 60 * 1000; // 2 days in milliseconds
 
       hives.forEach((hive) => {
-        // Primeiro tentar pegar do localStorage
-        const feedingTimeKey = `hive_${hive.id}_feedingTime`;
         const alertedKey = `hive_${hive.id}_alertShown`; // Nova chave para rastrear alertas já mostrados
-        
-        const storedTimes = localStorage.getItem(feedingTimeKey);
         const alertedTimes = localStorage.getItem(alertedKey);
         
-        let waterLastTime = 0;
-        let foodLastTime = 0;
+        const waterLastTime = valueToMillis(hive.lastFeedingTime?.water);
+        const foodLastTime = valueToMillis(hive.lastFeedingTime?.food);
         let waterAlertShown = 0;
         let foodAlertShown = 0;
-
-        if (storedTimes) {
-          try {
-            const feedingTimes = JSON.parse(storedTimes);
-            waterLastTime = feedingTimes.agua || 0;
-            foodLastTime = feedingTimes.racao || 0;
-          } catch (e) {
-            console.error("Erro ao ler localStorage:", e);
-          }
-        }
 
         if (alertedTimes) {
           try {
             const alerted = JSON.parse(alertedTimes);
-            waterAlertShown = alerted.agua || 0;
-            foodAlertShown = alerted.racao || 0;
+            waterAlertShown = alerted.water || 0;
+            foodAlertShown = alerted.food || 0;
           } catch (e) {
             console.error("Erro ao ler alertas:", e);
           }
@@ -393,21 +400,35 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
     localStorage.setItem('kolmena_cleaning_history', JSON.stringify(cleaningHistory));
   }, [cleaningHistory]);
 
-const handleConfirmCleaning = (id: string) => {
-  setHives(prev => prev.map(hive => {
-    if (hive.id === id) {
-      toast.success(`Manutenção da ${hive.name} registrada!`, {
-        description: "O cronômetro de 72h foi reiniciado.",
-        icon: <CheckCircle2 className="w-4 h-4 text-green-500" />
-      });
-      
-      return { 
-        ...hive, 
-        lastCleaning: new Date().toISOString() // Isso garante o reset do contador
-      };
-    }
-    return hive;
-  }));
+const handleConfirmCleaning = async (id: string) => {
+  const hive = hives.find(h => h.id === id);
+  if (!hive || hive.usuarioId !== user?.uid) return;
+
+  try {
+    await updateDoc(doc(db, "colmeias", id), {
+      lastCleaning: Timestamp.now(),
+      atualizadoEm: serverTimestamp(),
+      eventos: arrayUnion({
+        tipo: "limpeza",
+        acao: true,
+        timestamp: Timestamp.now(),
+        origem: "app"
+      })
+    });
+
+    setCleaningHistory(prev => {
+      const today = new Date().toISOString().split("T")[0];
+      return prev.includes(today) ? prev : [...prev, today];
+    });
+
+    toast.success(`Manutenção da ${hive.name} registrada!`, {
+      description: "O cronômetro de 72h foi reiniciado.",
+      icon: <CheckCircle2 className="w-4 h-4 text-green-500" />
+    });
+  } catch (error) {
+    console.error("Erro ao registrar manutenção:", error);
+    toast.error("Erro ao registrar manutenção.");
+  }
 };
 
   useEffect(() => {
@@ -445,36 +466,95 @@ const handleConfirmCleaning = (id: string) => {
     return () => clearInterval(interval);
   }, [hives, notifications]);
 
-  const handleAddHive = (e: React.FormEvent) => {
+  const handleAddHive = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName || !newId) return;
-    const newHive: HiveData = {
-      id: newId.toUpperCase(),
-      name: newName,
-      status: "ideal",
-      temperaturaNinho: 32 + Math.random() * 5,
-      temperaturaSobreninho: 30 + Math.random() * 4,
-      umidadeNinho: 50 + Math.random() * 20,
-      umidadeSobreninho: 48 + Math.random() * 18,
-      ruido: 40 + Math.random() * 10,
-      lum: 100 + Math.random() * 800,
-      lastUpdate: "Agora",
-      lastCleaning: new Date().toISOString()
-    };
-    setHives([...hives, newHive]);
-    setIsAdding(false);
-    setNewName("");
-    setNewId("");
-    setSearchTerm("");
-    toast.success("Unidade Kolmena cadastrada com sucesso.");
-    addNotification("Novo Dispositivo", `Unidade ${newHive.id} foi registrada com sucesso.`, "success");
+    if (!user?.uid || user?.isDemo) {
+      toast.error("Entre com uma conta válida para cadastrar colmeias.");
+      return;
+    }
+
+    const hiveId = newId.trim().toUpperCase();
+    const hiveRef = doc(db, "colmeias", hiveId);
+
+    try {
+      const existingHive = await getDoc(hiveRef);
+      if (existingHive.exists()) {
+        const data = existingHive.data();
+        if (data.usuarioId !== user.uid) {
+          toast.error("Esse identificador já pertence a outra conta.");
+          return;
+        }
+
+        toast.error("Essa unidade já está cadastrada na sua conta.");
+        return;
+      }
+
+      await setDoc(hiveRef, {
+        apelido: newName.trim(),
+        usuarioId: user.uid,
+        controls: {
+          agua: false,
+          racao: false
+        },
+        lastFeedingTime: {
+          food: null,
+          water: null
+        },
+        ultimaLeitura: {
+          TempN: 0,
+          tempSN: 0,
+          umidN: 0,
+          umidSN: 0,
+          lum: 0,
+          ruido: 0,
+          timestamp: serverTimestamp()
+        },
+        leituras: [],
+        eventos: [],
+        status: "ideal",
+        lastCleaning: serverTimestamp(),
+        atualizadoEm: serverTimestamp()
+      });
+
+      await setDoc(doc(db, "usuarios", user.uid), {
+        nome: user.displayName || user.email || "Operador",
+        email: user.email || "",
+        colmeias: arrayUnion(hiveId)
+      }, { merge: true });
+
+      setIsAdding(false);
+      setNewName("");
+      setNewId("");
+      setSearchTerm("");
+      toast.success("Unidade Kolmena cadastrada com sucesso.");
+      addNotification("Novo Dispositivo", `Unidade ${hiveId} foi registrada com sucesso.`, "success");
+    } catch (error) {
+      console.error("Erro ao cadastrar colmeia:", error);
+      if (error instanceof FirebaseError && error.code === "permission-denied") {
+        toast.error("Firestore negou o cadastro. Confira as rules de colmeias.");
+        return;
+      }
+
+      toast.error(`Erro ao cadastrar unidade (${getFirebaseErrorCode(error)}).`);
+    }
   };
 
-  const handleDeleteHive = (id: string) => {
+  const handleDeleteHive = async (id: string) => {
     const hive = hives.find(h => h.id === id);
-    setHives(hives.filter(h => h.id !== id));
-    toast.info("Unidade removida do sistema.");
-    addNotification("Dispositivo Removido", `A unidade ${hive?.name || id} foi desconectada.`, "warning");
+    if (!hive || hive.usuarioId !== user?.uid) return;
+
+    try {
+      await deleteDoc(doc(db, "colmeias", id));
+      await updateDoc(doc(db, "usuarios", user.uid), {
+        colmeias: arrayRemove(id)
+      });
+      toast.info("Unidade removida do sistema.");
+      addNotification("Dispositivo Removido", `A unidade ${hive?.name || id} foi desconectada.`, "warning");
+    } catch (error) {
+      console.error("Erro ao remover colmeia:", error);
+      toast.error("Erro ao remover unidade.");
+    }
   };
 
   const renderCleaningFrequency = (alignment: "start" | "end" = "end") => {
@@ -515,7 +595,7 @@ const handleConfirmCleaning = (id: string) => {
   };
 
   if (selectedHive) {
-    return <HiveDetails hive={selectedHive} onBack={() => setSelectedHive(null)} />;
+    return <HiveDetails hive={selectedHive} userId={user?.uid} onBack={() => setSelectedHive(null)} />;
   }
 
   if (currentView === 'mission') {

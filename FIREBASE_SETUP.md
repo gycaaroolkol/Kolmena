@@ -1,151 +1,120 @@
-# 🔧 Configuração do Firebase - KOLMENA
+# Configuracao do Firebase - KOLMENA
 
-## ❌ Erro Atual
+Este projeto usa Firebase Auth e Cloud Firestore. O Realtime Database nao e mais necessario para o app web.
+
+## Variaveis de ambiente
+
+Copie `.env.example` para `.env` e preencha os valores do app web criado no Firebase:
+
+```env
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_MEASUREMENT_ID=
 ```
-FIREBASE WARNING: set at /hives/MEL-001/controls/water failed: permission_denied
-Erro ao atualizar controle: Error: PERMISSION_DENIED: Permission denied
+
+## Estrutura no Firestore
+
+Colecoes principais:
+
+```txt
+usuarios/{uid}
+  nome
+  email
+  colmeias: ["MEL-001"]
+  criadoEm
+
+colmeias/{hiveId}
+  apelido
+  usuarioId
+  controls
+    agua
+    racao
+  lastFeedingTime
+    food
+    water
+  ultimaLeitura
+    TempN
+    tempSN
+    umidN
+    umidSN
+    lum
+    ruido
+    timestamp
+  leituras: []
+  eventos: []
+  lastCleaning
+  atualizadoEm
 ```
 
-## ✅ Solução: Atualizar Regras de Segurança do Firebase Realtime Database
+Os graficos do dashboard usam `colmeias/{hiveId}.leituras`. A leitura mais recente exibida nos cards vem de `ultimaLeitura`.
 
-### Passo 1: Acessar o Console do Firebase
-1. Acesse: https://console.firebase.google.com/
-2. Selecione o projeto **kolmena-1b3be**
+## Regras de seguranca
 
-### Passo 2: Navegar até Realtime Database
-1. No menu lateral esquerdo, clique em **"Realtime Database"**
-2. Clique na aba **"Regras"** (Rules)
+No Console do Firebase, abra Firestore Database > Rules e publique:
 
-### Passo 3: Substituir as Regras
-Copie e cole o seguinte código de regras:
+```js
+rules_version = '2';
 
-```json
-{
-  "rules": {
-    "hives": {
-      "$hiveId": {
-        ".read": true,
-        ".write": true,
-        "controls": {
-          ".read": true,
-          ".write": true
-        },
-        "lastFeedingTime": {
-          ".read": true,
-          ".write": true
-        },
-        "metrics": {
-          ".read": true,
-          ".write": true
-        }
-      }
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    match /usuarios/{userId} {
+      allow create: if isUser(userId);
+      allow get, update, delete: if isUser(userId);
+      allow list: if false;
+    }
+
+    match /colmeias/{hiveId} {
+      allow create: if signedIn()
+        && request.resource.data.usuarioId == request.auth.uid;
+
+      allow get: if signedIn()
+        && (
+          !exists(/databases/$(database)/documents/colmeias/$(hiveId))
+          || resource.data.usuarioId == request.auth.uid
+        );
+
+      allow list: if signedIn()
+        && resource.data.usuarioId == request.auth.uid;
+
+      allow delete: if signedIn()
+        && resource.data.usuarioId == request.auth.uid;
+
+      allow update: if signedIn()
+        && resource.data.usuarioId == request.auth.uid
+        && request.resource.data.usuarioId == request.auth.uid;
     }
   }
 }
 ```
 
-### Passo 4: Publicar as Regras
-1. Clique no botão **"Publicar"** (Publish)
-2. Aguarde a confirmação de que as regras foram aplicadas
+Essas regras impedem que um usuario veja, edite ou remova colmeias de outra conta. O `allow get` em `colmeias` tambem permite que o app consulte um ID ainda inexistente antes de cria-lo; sem isso, o cadastro de uma nova colmeia pode falhar com `permission-denied` no `getDoc`.
 
-### Passo 5: Testar
-1. Volte para o dashboard do KOLMENA
-2. Atualize a página (F5)
-3. Tente acionar os botões de água ou alimentação
-4. Os botões devem funcionar sem erros
+## Fluxo do app
 
----
+- Ao criar conta ou entrar com Google/e-mail, o app cria/atualiza `usuarios/{uid}`.
+- Ao cadastrar uma colmeia, o app cria `colmeias/{hiveId}` com `usuarioId` igual ao usuario autenticado.
+- A lista do dashboard consulta somente `colmeias` onde `usuarioId == uid`.
+- Os comandos de agua/racao atualizam `controls`, `lastFeedingTime`, `eventos` e `atualizadoEm`.
+- Os graficos nao usam valores simulados; eles leem o historico salvo em `leituras`.
 
-## 📊 Estrutura de Dados no Firebase
+## Integracao com hardware
 
-Após aplicar as regras, o Firebase terá a seguinte estrutura:
+O hardware deve refletir a mesma estrutura do Firestore:
 
-```
-kolmena-1b3be-default-rtdb/
-└── hives/
-    └── MEL-001/
-        ├── controls/
-        │   ├── water: true/false
-        │   └── food: true/false
-        ├── lastFeedingTime/
-        │   ├── water: 1710795094515 (timestamp)
-        │   └── food: 1710795094515 (timestamp)
-        └── metrics/ (opcional)
-            ├── temperature: 34.5
-            ├── humidity: 62
-            ├── noise: 45
-            └── luminosity: 880
-```
+- Ler comandos em `colmeias/{hiveId}.controls.agua` e `colmeias/{hiveId}.controls.racao`.
+- Enviar a medicao atual para `colmeias/{hiveId}.ultimaLeitura`.
+- Acrescentar historico em `colmeias/{hiveId}.leituras` para alimentar os graficos.
 
----
-
-## ⚠️ Importante para Produção
-
-**ATENÇÃO:** As regras acima permitem leitura e escrita pública para facilitar o desenvolvimento.
-
-Para um ambiente de produção, você deve adicionar autenticação:
-
-```json
-{
-  "rules": {
-    "hives": {
-      "$hiveId": {
-        ".read": "auth != null",
-        ".write": "auth != null",
-        "controls": {
-          ".read": "auth != null",
-          ".write": "auth != null"
-        },
-        "lastFeedingTime": {
-          ".read": "auth != null",
-          ".write": "auth != null"
-        }
-      }
-    }
-  }
-}
-```
-
-Isso garante que apenas usuários autenticados possam ler e escrever dados.
-
----
-
-## 🔗 Integração com ESP32
-
-A ESP32 deve monitorar os seguintes caminhos no Firebase:
-
-### Para receber comandos:
-```cpp
-// Firebase path para controles
-Firebase.getBool(firebaseData, "/hives/MEL-001/controls/water");
-Firebase.getBool(firebaseData, "/hives/MEL-001/controls/food");
-```
-
-### Para enviar métricas (opcional):
-```cpp
-// Firebase path para métricas
-Firebase.setFloat(firebaseData, "/hives/MEL-001/metrics/temperature", temperature);
-Firebase.setFloat(firebaseData, "/hives/MEL-001/metrics/humidity", humidity);
-```
-
----
-
-## 🆘 Problemas Comuns
-
-### Erro persiste após atualizar regras?
-1. Faça logout completo do dashboard
-2. Limpe o cache do navegador (Ctrl+Shift+Del)
-3. Faça login novamente
-
-### Dados não aparecem no Firebase?
-1. Verifique se o projeto está correto: **kolmena-1b3be**
-2. Verifique a URL do database: `https://kolmena-1b3be-default-rtdb.firebaseio.com`
-3. Certifique-se de que as regras foram publicadas
-
----
-
-## 📝 Notas
-
-- As regras do Firebase são aplicadas em **tempo real**
-- Não é necessário reiniciar o servidor ou aplicação
-- Você pode ver os dados sendo salvos na aba "Dados" do Realtime Database
+Use `Timestamp` real do Firestore quando possivel; strings ISO 8601 funcionam no app como fallback.

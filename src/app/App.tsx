@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { FirebaseError } from "firebase/app";
 import { AuthLayout } from "@/app/components/auth-layout";
 import { LoginForm } from "@/app/components/auth/login-form";
 import { RegisterForm } from "@/app/components/auth/register-form";
 import { Dashboard } from "@/app/components/dashboard/hive-grid";
 import imagem from "../assets/69de2de8cbe1c6eb64f795e4bb75e930fcb77729.png";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -14,12 +15,37 @@ import {
   signInWithPopup,
   updateProfile,
   sendPasswordResetEmail,
-  signOut
+  signOut,
+  type User
 } from "firebase/auth";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
 import { toast } from "sonner";
 
 type AppView = "login" | "register" | "dashboard";
+
+function getFirebaseErrorCode(error: unknown) {
+  return error instanceof FirebaseError ? error.code : "unknown";
+}
+
+async function ensureUserDocument(user: User, displayName?: string, includeInitialData = false) {
+  if (!user?.uid) return;
+
+  const userRef = doc(db, "usuarios", user.uid);
+  const baseData = {
+    nome: displayName || user.displayName || user.email || "Operador",
+    email: user.email || ""
+  };
+
+  await setDoc(userRef, {
+    ...baseData,
+    atualizadoEm: serverTimestamp(),
+    ...(includeInitialData ? {
+      colmeias: [],
+      criadoEm: serverTimestamp()
+    } : {})
+  }, { merge: true });
+}
 
 export default function App() {
   const [view, setView] = useState<AppView>("login");
@@ -27,22 +53,44 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    let cancelled = false;
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
-        setUser(currentUser);
-        setView("dashboard");
+        setLoading(true);
+
+        try {
+          await ensureUserDocument(currentUser);
+          if (cancelled) return;
+          setUser(currentUser);
+          setView("dashboard");
+        } catch (error) {
+          console.error("Erro ao sincronizar usuario no Firestore:", error);
+          if (cancelled) return;
+          setUser(null);
+          setView("login");
+          toast.error(`Login autenticado, mas o Firestore recusou a sincronizacao (${getFirebaseErrorCode(error)}).`);
+          await signOut(auth).catch((signOutError) => {
+            console.error("Erro ao encerrar sessao apos falha no Firestore:", signOutError);
+          });
+        }
       } else {
+        if (cancelled) return;
         setUser((prev: any) => {
           if (prev?.isDemo) return prev;
-          if (view === "dashboard") setView("login");
+          setView("login");
           return null;
         });
       }
-      setLoading(false);
+
+      if (!cancelled) setLoading(false);
     });
 
-    return () => unsubscribe();
-  }, [view]);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
 
   const handleUpdateUser = (updates: { displayName?: string; email?: string }) => {
     setUser((prev: any) => ({
@@ -62,9 +110,11 @@ export default function App() {
     const provider = new GoogleAuthProvider();
 
     try {
-      await signInWithPopup(auth, provider);
+      const userCredential = await signInWithPopup(auth, provider);
+      await ensureUserDocument(userCredential.user);
       toast.success("Login com Google realizado.");
     } catch (error: any) {
+      console.error("Erro no login com Google:", error);
       if (error.code === "auth/configuration-not-found") {
         setUser({
           displayName: "Demo User",
@@ -74,7 +124,7 @@ export default function App() {
         setView("dashboard");
         toast.info("Modo demo ativado.");
       } else {
-        toast.error("Erro no login.");
+        toast.error(`Erro no login (${getFirebaseErrorCode(error)}).`);
       }
       setLoading(false);
     }
@@ -84,10 +134,12 @@ export default function App() {
     setLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, email, pass);
+      const userCredential = await signInWithEmailAndPassword(auth, email, pass);
+      await ensureUserDocument(userCredential.user);
       toast.success("Bem-vindo!");
-    } catch {
-      toast.error("Email ou senha inválidos.");
+    } catch (error) {
+      console.error("Erro no login por email:", error);
+      toast.error(`Email ou senha invalidos (${getFirebaseErrorCode(error)}).`);
       setLoading(false);
     }
   };
@@ -98,6 +150,7 @@ export default function App() {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
       await updateProfile(userCredential.user, { displayName: name });
+      await ensureUserDocument(userCredential.user, name, true);
 
       setUser({
         ...userCredential.user,
@@ -105,8 +158,14 @@ export default function App() {
       });
 
       toast.success("Conta criada!");
-    } catch {
-      toast.error("Erro ao registrar.");
+    } catch (error) {
+      console.error("Erro ao registrar usuario:", error);
+      toast.error(`Erro ao registrar (${getFirebaseErrorCode(error)}).`);
+      if (auth.currentUser?.email === email) {
+        await signOut(auth).catch((signOutError) => {
+          console.error("Erro ao encerrar sessao apos falha no cadastro:", signOutError);
+        });
+      }
       setLoading(false);
     }
   };

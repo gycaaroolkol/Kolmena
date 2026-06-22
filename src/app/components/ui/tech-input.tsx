@@ -4,10 +4,11 @@ import { cn } from "@/lib/utils";
 interface TechInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   icon?: React.ReactNode;
   label?: string;
+  rightElement?: React.ReactNode;
 }
 
 export const TechInput = React.forwardRef<HTMLInputElement, TechInputProps>(
-  ({ className, icon, label, ...props }, ref) => {
+  ({ className, icon, label, rightElement, ...props }, ref) => {
     return (
       <div className="w-full space-y-2 group">
         {label && (
@@ -37,6 +38,11 @@ export const TechInput = React.forwardRef<HTMLInputElement, TechInputProps>(
               )}
               {...props}
             />
+            {rightElement && (
+              <div className="pr-2">
+                {rightElement}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -15,23 +15,24 @@ import { ArrowLeft, Thermometer, Droplets, Volume2, Sun, Droplet, UtensilsCrosse
 import { HiveData } from "./hive-card";
 import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
-
-// --- CONEXÃO PURA COM O FIREBASE REALTIME DATABASE ---
-import { ref, onValue, set } from "firebase/database";
+import { arrayUnion, doc, onSnapshot, serverTimestamp, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-
-const USER_ID = "krMVeLw23JZeovrdoMPCpI4lyzD2";
+import { formatReadingLabel, mapHiveData } from "./firestore-hive";
 
 type MetricId = "tempSN" | "tempN" | "umidadeSN" | "umidadeN" | "noise" | "luminosity";
 
-function generateHistoryFromCurrent(val: number, base: number, days = 7): any[] {
-  const points = [];
-  const baseValue = typeof val === "number" ? val : base;
-  for (let i = days; i >= 1; i--) {
-    const randomVariation = (Math.random() - 0.5) * (baseValue * 0.08);
-    points.push(Number((baseValue + randomVariation).toFixed(1)));
-  }
-  return points;
+function getReadingValue(reading: NonNullable<HiveData["leituras"]>[number], metricId: MetricId) {
+  const fieldByMetric: Record<MetricId, keyof NonNullable<HiveData["leituras"]>[number]> = {
+    tempN: "TempN",
+    tempSN: "tempSN",
+    umidadeN: "umidN",
+    umidadeSN: "umidSN",
+    noise: "ruido",
+    luminosity: "lum"
+  };
+
+  const value = Number(reading[fieldByMetric[metricId]]);
+  return Number.isFinite(value) ? value : null;
 }
 
 function getMetricSuggestion(metricId: MetricId, value: number) {
@@ -70,10 +71,11 @@ function getMetricSuggestion(metricId: MetricId, value: number) {
 
 interface HiveDetailsProps {
   hive: HiveData;
+  userId?: string;
   onBack: () => void;
 }
 
-export function HiveDetails({ hive, onBack }: HiveDetailsProps) {
+export function HiveDetails({ hive, userId, onBack }: HiveDetailsProps) {
   // Inicialização segura com fallbacks explícitos
   const [hiveData, setHiveData] = useState<HiveData>(() => ({
     id: hive?.id || "ID_DESCONHECIDO",
@@ -94,47 +96,74 @@ export function HiveDetails({ hive, onBack }: HiveDetailsProps) {
     racao: false
   });
 
-  // --- ESCUTA EM TEMPO REAL COM O FIREBASE ---
+  useEffect(() => {
+    setActiveControls({
+      agua: hiveData.controls?.agua ?? false,
+      racao: hiveData.controls?.racao ?? false
+    });
+  }, [hiveData.controls?.agua, hiveData.controls?.racao]);
+
+  // --- ESCUTA EM TEMPO REAL COM O FIRESTORE ---
   useEffect(() => {
     if (!hive?.id) return;
 
-    const sensorRef = ref(db, `usuarios/${USER_ID}/${hive.id}/Output`);
+    const hiveRef = doc(db, "colmeias", hive.id);
 
-    const unsubscribe = onValue(sensorRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        
-        setHiveData((current) => ({
-          ...current,
-          // Verifica se o valor existe na propriedade correspondente do banco e converte de forma segura
-          temperaturaNinho: data.TempN !== undefined && data.TempN !== null ? Number(data.TempN) : current.temperaturaNinho,
-          temperaturaSobreninho: data.tempSN !== undefined && data.tempSN !== null ? Number(data.tempSN) : current.temperaturaSobreninho,
-          umidadeNinho: data.umidN !== undefined && data.umidN !== null ? Number(data.umidN) : current.umidadeNinho,
-          umidadeSobreninho: data.umidSN !== undefined && data.umidSN !== null ? Number(data.umidSN) : current.umidadeSobreninho,
-          ruido: data.ruido !== undefined && data.ruido !== null ? Number(data.ruido) : current.ruido,
-          lum: data.lum !== undefined && data.lum !== null ? Number(data.lum) : current.lum,
-          lastUpdate: new Date().toISOString()
-        }));
+    const unsubscribe = onSnapshot(hiveRef, (snapshot) => {
+      if (!snapshot.exists()) return;
+
+      const data = snapshot.data();
+      if (userId && data.usuarioId !== userId) {
+        console.warn("Acesso bloqueado: colmeia pertence a outro usuário.");
+        onBack();
+        return;
       }
+
+      setHiveData(mapHiveData(snapshot.id, data));
     }, (error) => {
-      console.error("Erro Firebase Detalhes:", error);
+      console.error("Erro Firestore Detalhes:", error);
     });
 
     return () => unsubscribe();
-  }, [hive?.id]);
+  }, [hive?.id, onBack, userId]);
 
-  // --- ATUADORES DE ENTRADA DO FIREBASE (2 SEGUNDOS ATIVOS) ---
+  // --- ATUADORES DE ENTRADA DO FIRESTORE (2 SEGUNDOS ATIVOS) ---
   const toggleFirebaseControl = async (controlName: "agua" | "racao") => {
     if (!hiveData.id) return;
-    const controlRef = ref(db, `usuarios/${USER_ID}/${hiveData.id}/Input/${controlName}`);
+    if (userId && hiveData.usuarioId !== userId) return;
+
+    const feedingKey = controlName === "agua" ? "water" : "food";
+    const hiveRef = doc(db, "colmeias", hiveData.id);
 
     try {
-      await set(controlRef, true);
       setActiveControls(prev => ({ ...prev, [controlName]: true }));
+      await updateDoc(hiveRef, {
+        [`controls.${controlName}`]: true,
+        [`lastFeedingTime.${feedingKey}`]: Timestamp.now(),
+        eventos: arrayUnion({
+          tipo: controlName,
+          acao: true,
+          timestamp: Timestamp.now(),
+          origem: "app"
+        }),
+        atualizadoEm: serverTimestamp()
+      });
 
       setTimeout(async () => {
-        await set(controlRef, false);
-        setActiveControls(prev => ({ ...prev, [controlName]: false }));
+        try {
+          await updateDoc(hiveRef, {
+            [`controls.${controlName}`]: false,
+            eventos: arrayUnion({
+              tipo: controlName,
+              acao: false,
+              timestamp: Timestamp.now(),
+              origem: "app"
+            }),
+            atualizadoEm: serverTimestamp()
+          });
+        } finally {
+          setActiveControls(prev => ({ ...prev, [controlName]: false }));
+        }
       }, 2000);
 
     } catch (error) {
@@ -235,10 +264,12 @@ export function HiveDetails({ hive, onBack }: HiveDetailsProps) {
   const selectedSuggestion = selectedMetric ? getMetricSuggestion(selectedMetric.id, selectedMetric.value) : null;
 
   const chartHistory = selectedMetric
-    ? generateHistoryFromCurrent(selectedMetric.value, selectedMetric.base).map((val, idx) => ({
-        day: `Leitura ${idx + 1}`,
-        valor: val
-      }))
+    ? (hiveData.leituras ?? [])
+        .map((reading, idx) => ({
+          day: formatReadingLabel(reading.timestamp, `Leitura ${idx + 1}`),
+          valor: getReadingValue(reading, selectedMetric.id)
+        }))
+        .filter((item): item is { day: string; valor: number } => item.valor !== null)
     : [];
 
   return (
@@ -292,47 +323,53 @@ export function HiveDetails({ hive, onBack }: HiveDetailsProps) {
 
         {/* CONTAINER DO GRÁFICO DINÂMICO */}
         {selectedChart && selectedMetric && (
-          <ChartContainer title={selectedMetric.label} subtitle={`Monitorização em tempo real via Realtime Database`}>
+          <ChartContainer title={selectedMetric.label} subtitle={`Histórico carregado do Firestore`}>
             <div className="h-72 w-full pt-4">
-              <ResponsiveContainer width="100%" height="100%">
-                {selectedMetric.chartType === "area" ? (
-                  <AreaChart data={chartHistory}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis dataKey="day" stroke="#71717a" fontSize={11} tickLine={false} />
-                    <YAxis stroke="#71717a" fontSize={11} tickLine={false} domain={['auto', 'auto']} />
-                    <Tooltip contentStyle={{ background: '#18181b', borderRadius: '1rem', border: 'none', color: '#fff' }} />
-                    <Area
-                      type="monotone"
-                      dataKey="valor"
-                      name={selectedMetric.label}
-                      stroke={selectedMetric.hexColor}
-                      fill="url(#colorDynamicMetric)"
-                      strokeWidth={3}
-                    />
-                    <defs>
-                      <linearGradient id="colorDynamicMetric" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={selectedMetric.hexColor} stopOpacity={0.2}/>
-                        <stop offset="95%" stopColor={selectedMetric.hexColor} stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                  </AreaChart>
-                ) : (
-                  <LineChart data={chartHistory}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis dataKey="day" stroke="#71717a" fontSize={11} tickLine={false} />
-                    <YAxis stroke="#71717a" fontSize={11} tickLine={false} domain={['auto', 'auto']} />
-                    <Tooltip contentStyle={{ background: '#18181b', borderRadius: '1rem', border: 'none', color: '#fff' }} />
-                    <Line
-                      type="monotone"
-                      dataKey="valor"
-                      name={selectedMetric.label}
-                      stroke={selectedMetric.hexColor}
-                      strokeWidth={3}
-                      dot={{ r: 4, fill: selectedMetric.hexColor }}
-                    />
-                  </LineChart>
-                )}
-              </ResponsiveContainer>
+              {chartHistory.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  {selectedMetric.chartType === "area" ? (
+                    <AreaChart data={chartHistory}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                      <XAxis dataKey="day" stroke="#71717a" fontSize={11} tickLine={false} />
+                      <YAxis stroke="#71717a" fontSize={11} tickLine={false} domain={['auto', 'auto']} />
+                      <Tooltip contentStyle={{ background: '#18181b', borderRadius: '1rem', border: 'none', color: '#fff' }} />
+                      <Area
+                        type="monotone"
+                        dataKey="valor"
+                        name={selectedMetric.label}
+                        stroke={selectedMetric.hexColor}
+                        fill="url(#colorDynamicMetric)"
+                        strokeWidth={3}
+                      />
+                      <defs>
+                        <linearGradient id="colorDynamicMetric" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={selectedMetric.hexColor} stopOpacity={0.2}/>
+                          <stop offset="95%" stopColor={selectedMetric.hexColor} stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                    </AreaChart>
+                  ) : (
+                    <LineChart data={chartHistory}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                      <XAxis dataKey="day" stroke="#71717a" fontSize={11} tickLine={false} />
+                      <YAxis stroke="#71717a" fontSize={11} tickLine={false} domain={['auto', 'auto']} />
+                      <Tooltip contentStyle={{ background: '#18181b', borderRadius: '1rem', border: 'none', color: '#fff' }} />
+                      <Line
+                        type="monotone"
+                        dataKey="valor"
+                        name={selectedMetric.label}
+                        stroke={selectedMetric.hexColor}
+                        strokeWidth={3}
+                        dot={{ r: 4, fill: selectedMetric.hexColor }}
+                      />
+                    </LineChart>
+                  )}
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-xs font-bold uppercase tracking-wider text-zinc-400">
+                  Sem histórico registrado no banco
+                </div>
+              )}
             </div>
 
             {/* SUGESTÃO DE INTELIGÊNCIA */}
@@ -354,7 +391,7 @@ export function HiveDetails({ hive, onBack }: HiveDetailsProps) {
         <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-900 p-6 rounded-[2rem] space-y-4 shadow-sm">
           <div>
             <h3 className="text-lg font-black tracking-tight">Comandos Rápidos de Campo</h3>
-            <p className="text-xs text-zinc-500">Ativação direta de atuadores no Firebase (2 segundos ativos)</p>
+            <p className="text-xs text-zinc-500">Ativação direta de atuadores no Firestore (2 segundos ativos)</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <button
