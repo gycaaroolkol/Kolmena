@@ -977,8 +977,8 @@ const handleConfirmCleaning = async (id: string) => {
           </div>
           
           {/* Navegação Desktop */}
-          <nav className="hidden lg:flex items-center gap-6">
-            {['Monitoramento', 'Nossa Missão', 'Modo Inverno', 'Configurações'].map((item) => (
+          <nav className="hidden lg:flex items-center">
+            {['Monitoramento', 'Nossa Missão', 'Modo Inverno', 'Configurações'].map((item, idx) => (
               <button 
                 key={item} 
                 onClick={() => {
@@ -988,10 +988,10 @@ const handleConfirmCleaning = async (id: string) => {
                   if (item === 'Configurações') setIsSettingsOpen(true);
                 }}
                 className={cn(
-                  "text-sm font-medium transition-all",
+                  "px-4 py-2 text-sm font-medium transition-all border-r-2 border-zinc-200 dark:border-zinc-800 last:border-r-0",
                   (item === 'Monitoramento' && currentView === 'dashboard') || (item === 'Nossa Missão' && currentView) 
                     ? "text-[#FFA500]" 
-                    : "text-zinc-600 hover:text-black"
+                    : "text-zinc-600 hover:text-black hover:bg-zinc-50 dark:hover:bg-zinc-900"
                 )}
               >
                 {item}
@@ -1000,10 +1000,10 @@ const handleConfirmCleaning = async (id: string) => {
           </nav>
 
           {/* Ações do Usuário */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center">
             <button 
               onClick={() => setIsNotificationPanelOpen(true)}
-              className="p-2 text-zinc-600 hover:text-[#FFA500] transition-colors relative"
+              className="p-2 text-zinc-600 hover:text-[#FFA500] transition-colors relative border-l-2 border-zinc-200 dark:border-zinc-800 ml-4"
             >
               <Bell className="w-5 h-5" />
               {notifications.some(n => !n.read) && (
