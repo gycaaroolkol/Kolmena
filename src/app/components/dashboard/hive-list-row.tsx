@@ -129,6 +129,10 @@ export function HiveListRow({ hive, onViewDetails, onDelete, onConfirmCleaning }
   const config = statusConfig[hive.status];
   const { totalHours } = getTimeSinceCleaning();
   const isOverdue = totalHours > 72;
+  const temperature = typeof hive.temperaturaNinho === "number" ? hive.temperaturaNinho : 0;
+  const humidity = typeof hive.umidadeNinho === "number" ? hive.umidadeNinho : 0;
+  const noise = typeof hive.ruido === "number" ? hive.ruido : 0;
+  const luminosity = typeof hive.lum === "number" ? hive.lum : 0;
 
   return (
     <motion.div 
@@ -199,7 +203,7 @@ export function HiveListRow({ hive, onViewDetails, onDelete, onConfirmCleaning }
               <Thermometer className="w-4 h-4 text-orange-600" />
             </div>
             <div>
-              <span className="text-xs font-bold text-orange-600 block">{hive.temperature.toFixed(1)}°C</span>
+              <span className="text-xs font-bold text-orange-600 block">{temperature.toFixed(1)}°C</span>
               <span className="text-[8px] text-zinc-500 uppercase tracking-wider">Temp</span>
             </div>
           </div>
@@ -208,7 +212,7 @@ export function HiveListRow({ hive, onViewDetails, onDelete, onConfirmCleaning }
               <Droplets className="w-4 h-4 text-blue-600" />
             </div>
             <div>
-              <span className="text-xs font-bold text-blue-600 block">{hive.humidity.toFixed(0)}%</span>
+              <span className="text-xs font-bold text-blue-600 block">{humidity.toFixed(0)}%</span>
               <span className="text-[8px] text-zinc-500 uppercase tracking-wider">Umid</span>
             </div>
           </div>
@@ -217,7 +221,7 @@ export function HiveListRow({ hive, onViewDetails, onDelete, onConfirmCleaning }
               <Volume2 className="w-4 h-4 text-purple-600" />
             </div>
             <div>
-              <span className="text-xs font-bold text-purple-600 block">{hive.noise.toFixed(0)}dB</span>
+              <span className="text-xs font-bold text-purple-600 block">{noise.toFixed(0)}dB</span>
               <span className="text-[8px] text-zinc-500 uppercase tracking-wider">Ruído</span>
             </div>
           </div>
@@ -226,7 +230,7 @@ export function HiveListRow({ hive, onViewDetails, onDelete, onConfirmCleaning }
               <Sun className="w-4 h-4 text-yellow-600" />
             </div>
             <div>
-              <span className="text-xs font-bold text-yellow-600 block">{hive.luminosity.toFixed(0)}lx</span>
+              <span className="text-xs font-bold text-yellow-600 block">{luminosity.toFixed(0)}lx</span>
               <span className="text-[8px] text-zinc-500 uppercase tracking-wider">Luz</span>
             </div>
           </div>
