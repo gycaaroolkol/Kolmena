@@ -204,6 +204,7 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
     if (!user?.uid || user?.isDemo) {
       setWinterMode(nextSettings);
       setWinterTimeDraft(nextSettings.time);
+      setHasUserWinterMode(true);
       return;
     }
 
@@ -233,15 +234,18 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
     if (winterMode.enabled) {
       setShowConfirmModal(true);
     } else {
+      const nextSettings = {
+        ...winterMode,
+        enabled: true,
+        time: winterTimeDraft || defaultWinterMode.time,
+        activeUntilMonth: 5,
+        waterDurationMs: 2000,
+        foodDurationMs: 3000
+      };
+      // Otimistic update ANTES do async
+      setWinterMode(nextSettings);
+      setHasUserWinterMode(true);
       try {
-        const nextSettings = {
-          ...winterMode,
-          enabled: true,
-          time: winterTimeDraft || defaultWinterMode.time,
-          activeUntilMonth: 5,
-          waterDurationMs: 2000,
-          foodDurationMs: 3000
-        };
         await persistWinterMode(nextSettings);
         toast.success("Modo Inverno ativado com sucesso", {
           style: { background: '#18181b', color: '#f59e0b', border: '1px solid #f59e0b' }
