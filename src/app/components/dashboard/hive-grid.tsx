@@ -254,13 +254,18 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
   };
 
   const confirmDeactivation = async () => {
+    const nextSettings = {
+      ...winterMode,
+      enabled: false,
+      time: winterTimeDraft || winterMode.time
+    };
+    // Otimistic update: seta estado local ANTES do async para bloquear race conditions
+    setWinterMode(nextSettings);
+    setHasUserWinterMode(true);
+    setShowConfirmModal(false);
+
     try {
-      await persistWinterMode({
-        ...winterMode,
-        enabled: false,
-        time: winterTimeDraft || winterMode.time
-      });
-      setShowConfirmModal(false);
+      await persistWinterMode(nextSettings);
       toast.warning("Modo Inverno desativado manualmente", {
         style: { background: '#18181b', color: '#ef4444', border: '1px solid #ef4444' }
       });
