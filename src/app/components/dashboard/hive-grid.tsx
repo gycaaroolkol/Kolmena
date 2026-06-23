@@ -1120,7 +1120,7 @@ const handleConfirmCleaning = async (id: string) => {
                 viewMode === "grid" ? (
                   <motion.div 
                     layout
-                    className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"
+                    className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 py-6"
                   >
                     {filteredHives.map((hive) => (
                       <motion.div 
@@ -1143,7 +1143,7 @@ const handleConfirmCleaning = async (id: string) => {
                 ) : (
                   <motion.div 
                     layout
-                    className="flex flex-col gap-4"
+                    className="flex flex-col gap-4 py-6"
                   >
                     {filteredHives.map((hive) => (
                       <motion.div 
