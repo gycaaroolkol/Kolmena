@@ -98,11 +98,6 @@ function isWinterModeSeason(date = new Date(), activeUntilMonth = 5) {
   return month === 12 || month <= activeUntilMonth;
 }
 
-function shouldAutoDisableWinterMode(date = new Date(), activeUntilMonth = 5) {
-  const month = date.getMonth() + 1;
-  return month > activeUntilMonth && month < 12;
-}
-
 function getLocalDateKey(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -406,24 +401,6 @@ export function Dashboard({ onLogout, user, onUpdateUser }: DashboardProps) {
     setWinterMode(nextWinterMode);
     setWinterTimeDraft(nextWinterMode.time);
   }, [hives]);
-
-  useEffect(() => {
-    if (!winterMode.enabled || !shouldAutoDisableWinterMode(new Date(), winterMode.activeUntilMonth)) return;
-
-    persistWinterMode({
-      ...winterMode,
-      enabled: false,
-      autoDisabledAt: serverTimestamp()
-    }).then((result) => {
-      if (result.failedCount > 0) {
-        toast.warning(`Modo Inverno desligado em ${result.totalCount - result.failedCount} de ${result.totalCount} colmeias.`);
-      } else {
-        toast.info("Modo Inverno desligado automaticamente após o mês de maio.");
-      }
-    }).catch((error) => {
-      console.error("Erro ao desligar Modo Inverno automaticamente:", error);
-    });
-  }, [winterMode.enabled, winterMode.activeUntilMonth]);
 
   useEffect(() => {
     if (!winterMode.enabled || hives.length === 0) return;
@@ -1485,7 +1462,7 @@ const handleConfirmCleaning = async (id: string) => {
                   
                   <div className="space-y-4">
                     <p className="text-[11px] sm:text-xs text-zinc-500 dark:text-zinc-400 uppercase tracking-wider leading-relaxed">
-                      O sistema executa a suplementação automática no horário confirmado e mantém a configuração vigente até 31 de maio. Após maio, o protocolo é desligado automaticamente.
+                      O sistema executa a suplementação automática no horário confirmado durante o período configurado. O protocolo permanece ligado até ser desativado manualmente.
                     </p>
                     
                     <div className="pt-4 flex flex-col gap-4">
