@@ -55,6 +55,11 @@ type WinterModeSettings = {
   autoDisabledAt?: unknown;
 };
 
+type HiveWriteResult = {
+  totalCount: number;
+  failedCount: number;
+};
+
 const defaultAccountSettings: AccountSettings = {
   showSobreninho: true
 };
@@ -99,8 +104,9 @@ export function Dashboard({ onLogout, user, onUpdateUser }: DashboardProps) {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [winterMode, setWinterMode] = useState<WinterModeSettings>(defaultWinterMode);
   const [winterTimeDraft, setWinterTimeDraft] = useState(defaultWinterMode.time);
-  const [hasUserWinterMode, setHasUserWinterMode] = useState(false);
   const winterRunInProgressRef = useRef(false);
+  const winterTimeoutIdsRef = useRef<Set<number>>(new Set());
+  const isDashboardMountedRef = useRef(true);
   
   // Maintenance Settings
   const [maintenanceSettings, setMaintenanceSettings] = useState(() => {
@@ -110,6 +116,15 @@ export function Dashboard({ onLogout, user, onUpdateUser }: DashboardProps) {
     }
     return { enabled: true, time: "12:00", lastMaintenance: new Date().toISOString() };
   });
+
+  useEffect(() => {
+    return () => {
+      isDashboardMountedRef.current = false;
+      winterTimeoutIdsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      winterTimeoutIdsRef.current.clear();
+      winterRunInProgressRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('kolmena_maintenance_settings', JSON.stringify(maintenanceSettings));
@@ -124,29 +139,10 @@ export function Dashboard({ onLogout, user, onUpdateUser }: DashboardProps) {
     const userRef = doc(db, "usuarios", user.uid);
     const unsubscribe = onSnapshot(userRef, (snapshot) => {
       const data = snapshot.data();
-      const storedWinterMode = data?.winterMode;
 
       setAccountSettings({
         showSobreninho: data?.settings?.showSobreninho !== false
       });
-
-      setHasUserWinterMode(Boolean(storedWinterMode));
-      if (storedWinterMode) {
-        const nextWinterMode = {
-          enabled: Boolean(storedWinterMode.enabled),
-          time: typeof storedWinterMode.time === "string" ? storedWinterMode.time : defaultWinterMode.time,
-          activeUntilMonth: Number(storedWinterMode.activeUntilMonth) || 5,
-          waterDurationMs: Number(storedWinterMode.waterDurationMs) || 2000,
-          foodDurationMs: Number(storedWinterMode.foodDurationMs) || 3000,
-          lastRunDate: typeof storedWinterMode.lastRunDate === "string" ? storedWinterMode.lastRunDate : undefined,
-          autoDisabledAt: storedWinterMode.autoDisabledAt ?? undefined
-        };
-        setWinterMode(nextWinterMode);
-        setWinterTimeDraft(nextWinterMode.time);
-      } else {
-        setWinterMode(defaultWinterMode);
-        setWinterTimeDraft(defaultWinterMode.time);
-      }
     }, (error) => {
       console.error("Erro ao carregar preferencias da conta:", error);
       toast.error("Erro ao carregar preferências da conta.");
@@ -174,7 +170,7 @@ export function Dashboard({ onLogout, user, onUpdateUser }: DashboardProps) {
   };
 
   const resetMaintenanceTimer = () => {
-setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().toISOString() }));
+    setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().toISOString() }));
     toast.success("Contador de limpeza reiniciado!");
     addNotification("Manutenção Registrada", "A limpeza dos sensores foi marcada como concluída.", "success");
   };
@@ -200,12 +196,34 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [currentView, setCurrentView] = useState<"dashboard" | "mission">("dashboard");
 
-  const persistWinterMode = async (nextSettings: WinterModeSettings) => {
+  const updateWinterModeInHives = async (persistedWinterMode: WinterModeSettings): Promise<HiveWriteResult> => {
+    if (hives.length === 0) return { totalCount: 0, failedCount: 0 };
+
+    const results = await Promise.allSettled(hives.map((hive) => updateDoc(doc(db, "colmeias", hive.id), {
+      winterMode: persistedWinterMode,
+      atualizadoEm: serverTimestamp()
+    })));
+
+    const failures = results.filter((result) => result.status === "rejected");
+    if (failures.length > 0) {
+      console.error("Falha ao salvar Modo Inverno em algumas colmeias:", failures);
+    }
+
+    if (failures.length === hives.length) {
+      throw new Error("Nenhuma colmeia aceitou a atualização do Modo Inverno.");
+    }
+
+    return {
+      totalCount: hives.length,
+      failedCount: failures.length
+    };
+  };
+
+  const persistWinterMode = async (nextSettings: WinterModeSettings): Promise<HiveWriteResult> => {
     if (!user?.uid || user?.isDemo) {
       setWinterMode(nextSettings);
       setWinterTimeDraft(nextSettings.time);
-      setHasUserWinterMode(true);
-      return;
+      return { totalCount: 0, failedCount: 0 };
     }
 
     const persistedWinterMode = {
@@ -213,21 +231,11 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
       updatedAt: serverTimestamp()
     };
 
-    await setDoc(doc(db, "usuarios", user.uid), {
-      winterMode: persistedWinterMode,
-      atualizadoEm: serverTimestamp()
-    }, { merge: true });
-
-    if (hives.length > 0) {
-      await Promise.all(hives.map((hive) => updateDoc(doc(db, "colmeias", hive.id), {
-        winterMode: persistedWinterMode,
-        atualizadoEm: serverTimestamp()
-      })));
-    }
+    const result = await updateWinterModeInHives(persistedWinterMode);
 
     setWinterMode(nextSettings);
     setWinterTimeDraft(nextSettings.time);
-    setHasUserWinterMode(true);
+    return result;
   };
 
   const handleToggleWinterMode = async () => {
@@ -243,15 +251,22 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
         foodDurationMs: 3000
       };
       // Otimistic update ANTES do async
+      const previousSettings = winterMode;
+      const previousTimeDraft = winterTimeDraft;
       setWinterMode(nextSettings);
-      setHasUserWinterMode(true);
       try {
-        await persistWinterMode(nextSettings);
-        toast.success("Modo Inverno ativado com sucesso", {
-          style: { background: '#18181b', color: '#f59e0b', border: '1px solid #f59e0b' }
-        });
+        const result = await persistWinterMode(nextSettings);
+        if (result.failedCount > 0) {
+          toast.warning(`Modo Inverno salvo em ${result.totalCount - result.failedCount} de ${result.totalCount} colmeias.`);
+        } else {
+          toast.success("Modo Inverno ativado com sucesso", {
+            style: { background: '#18181b', color: '#f59e0b', border: '1px solid #f59e0b' }
+          });
+        }
       } catch (error) {
         console.error("Erro ao ativar Modo Inverno:", error);
+        setWinterMode(previousSettings);
+        setWinterTimeDraft(previousTimeDraft);
         toast.error("Erro ao ativar Modo Inverno.");
       }
     }
@@ -264,17 +279,24 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
       time: winterTimeDraft || winterMode.time
     };
     // Otimistic update: seta estado local ANTES do async para bloquear race conditions
+    const previousSettings = winterMode;
+    const previousTimeDraft = winterTimeDraft;
     setWinterMode(nextSettings);
-    setHasUserWinterMode(true);
     setShowConfirmModal(false);
 
     try {
-      await persistWinterMode(nextSettings);
-      toast.warning("Modo Inverno desativado manualmente", {
-        style: { background: '#18181b', color: '#ef4444', border: '1px solid #ef4444' }
-      });
+      const result = await persistWinterMode(nextSettings);
+      if (result.failedCount > 0) {
+        toast.warning(`Modo Inverno desativado em ${result.totalCount - result.failedCount} de ${result.totalCount} colmeias.`);
+      } else {
+        toast.warning("Modo Inverno desativado manualmente", {
+          style: { background: '#18181b', color: '#ef4444', border: '1px solid #ef4444' }
+        });
+      }
     } catch (error) {
       console.error("Erro ao desativar Modo Inverno:", error);
+      setWinterMode(previousSettings);
+      setWinterTimeDraft(previousTimeDraft);
       toast.error("Erro ao desativar Modo Inverno.");
     }
   };
@@ -350,8 +372,6 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
   }, [user?.uid, user?.isDemo]);
 
   useEffect(() => {
-    if (hasUserWinterMode) return;
-
     const source = hives.find((hive) => hive.winterMode?.enabled) ?? hives[0];
     const nextWinterMode = source?.winterMode
       ? {
@@ -367,7 +387,7 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
 
     setWinterMode(nextWinterMode);
     setWinterTimeDraft(nextWinterMode.time);
-  }, [hives, hasUserWinterMode]);
+  }, [hives]);
 
   useEffect(() => {
     if (!winterMode.enabled || !shouldAutoDisableWinterMode(new Date(), winterMode.activeUntilMonth)) return;
@@ -376,8 +396,12 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
       ...winterMode,
       enabled: false,
       autoDisabledAt: serverTimestamp()
-    }).then(() => {
-      toast.info("Modo Inverno desligado automaticamente após o mês de maio.");
+    }).then((result) => {
+      if (result.failedCount > 0) {
+        toast.warning(`Modo Inverno desligado em ${result.totalCount - result.failedCount} de ${result.totalCount} colmeias.`);
+      } else {
+        toast.info("Modo Inverno desligado automaticamente após o mês de maio.");
+      }
     }).catch((error) => {
       console.error("Erro ao desligar Modo Inverno automaticamente:", error);
     });
@@ -385,6 +409,14 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
 
   useEffect(() => {
     if (!winterMode.enabled || hives.length === 0) return;
+
+    const scheduleTimeout = (callback: () => void, delay: number) => {
+      const timeoutId = window.setTimeout(() => {
+        winterTimeoutIdsRef.current.delete(timeoutId);
+        if (isDashboardMountedRef.current) callback();
+      }, delay);
+      winterTimeoutIdsRef.current.add(timeoutId);
+    };
 
     const runWinterFeedingIfNeeded = async () => {
       const now = new Date();
@@ -403,7 +435,7 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
         const waterDuration = winterMode.waterDurationMs || defaultWinterMode.waterDurationMs;
         const foodDuration = winterMode.foodDurationMs || defaultWinterMode.foodDurationMs;
 
-        await Promise.all(hives.map((hive) => updateDoc(doc(db, "colmeias", hive.id), {
+        const startResults = await Promise.allSettled(hives.map((hive) => updateDoc(doc(db, "colmeias", hive.id), {
           "controls.agua": true,
           "controls.racao": true,
           "lastFeedingTime.water": startTime,
@@ -419,14 +451,26 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
           atualizadoEm: serverTimestamp()
         })));
 
-        await persistWinterMode({
+        const startFailures = startResults.filter((result) => result.status === "rejected");
+        if (startFailures.length > 0) {
+          console.error("Falha ao iniciar Modo Inverno em algumas colmeias:", startFailures);
+        }
+
+        if (startFailures.length === hives.length) {
+          throw new Error("Nenhuma colmeia aceitou a execução do Modo Inverno.");
+        }
+
+        if (!isDashboardMountedRef.current) return;
+
+        const persistResult = await persistWinterMode({
           ...winterMode,
           lastRunDate: todayKey
         });
 
-        window.setTimeout(() => {
-          hives.forEach((hive) => {
-            updateDoc(doc(db, "colmeias", hive.id), {
+        if (!isDashboardMountedRef.current) return;
+
+        scheduleTimeout(() => {
+          Promise.allSettled(hives.map((hive) => updateDoc(doc(db, "colmeias", hive.id), {
               "controls.agua": false,
               eventos: arrayUnion({
                 tipo: "agua",
@@ -435,13 +479,14 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
                 origem: "modo_inverno"
               }),
               atualizadoEm: serverTimestamp()
-            }).catch((error) => console.error("Erro ao finalizar água do Modo Inverno:", error));
-          });
+            }))).then((results) => {
+              const failures = results.filter((result) => result.status === "rejected");
+              if (failures.length > 0) console.error("Erro ao finalizar água do Modo Inverno:", failures);
+            });
         }, waterDuration);
 
-        window.setTimeout(() => {
-          hives.forEach((hive) => {
-            updateDoc(doc(db, "colmeias", hive.id), {
+        scheduleTimeout(() => {
+          Promise.allSettled(hives.map((hive) => updateDoc(doc(db, "colmeias", hive.id), {
               "controls.racao": false,
               eventos: arrayUnion({
                 tipo: "racao",
@@ -450,16 +495,27 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
                 origem: "modo_inverno"
               }),
               atualizadoEm: serverTimestamp()
-            }).catch((error) => console.error("Erro ao finalizar ração do Modo Inverno:", error));
-          });
+            }))).then((results) => {
+              const failures = results.filter((result) => result.status === "rejected");
+              if (failures.length > 0) console.error("Erro ao finalizar ração do Modo Inverno:", failures);
+            });
         }, foodDuration);
 
-        toast.success("Suplementação do Modo Inverno executada.");
+        if (startFailures.length > 0 || persistResult.failedCount > 0) {
+          toast.warning("Suplementação do Modo Inverno executada parcialmente.");
+        } else {
+          toast.success("Suplementação do Modo Inverno executada.");
+        }
       } catch (error) {
         console.error("Erro ao executar Modo Inverno:", error);
         toast.error("Erro ao executar Modo Inverno.");
       } finally {
-        window.setTimeout(() => {
+        if (!isDashboardMountedRef.current) {
+          winterRunInProgressRef.current = false;
+          return;
+        }
+
+        scheduleTimeout(() => {
           winterRunInProgressRef.current = false;
         }, 65000);
       }
@@ -467,7 +523,9 @@ setMaintenanceSettings((prev: any) => ({ ...prev, lastMaintenance: new Date().to
 
     runWinterFeedingIfNeeded();
     const interval = window.setInterval(runWinterFeedingIfNeeded, 60000);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearInterval(interval);
+    };
   }, [hives, winterMode]);
 
   const filteredHives = useMemo(() => {
@@ -1460,14 +1518,18 @@ const handleConfirmCleaning = async (id: string) => {
                         <button
                           onClick={async () => {
                             try {
-                              await persistWinterMode({
+                              const result = await persistWinterMode({
                                 ...winterMode,
                                 time: winterTimeDraft || defaultWinterMode.time,
                                 activeUntilMonth: 5,
                                 waterDurationMs: 2000,
                                 foodDurationMs: 3000
                               });
-                              toast.success("Horário do Modo Inverno salvo.");
+                              if (result.failedCount > 0) {
+                                toast.warning(`Horário salvo em ${result.totalCount - result.failedCount} de ${result.totalCount} colmeias.`);
+                              } else {
+                                toast.success("Horário do Modo Inverno salvo.");
+                              }
                             } catch (error) {
                               console.error("Erro ao salvar horário do Modo Inverno:", error);
                               toast.error("Erro ao salvar horário.");
