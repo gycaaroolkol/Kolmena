@@ -1,11 +1,9 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
       return request.auth != null;
     }
-
     function isUser(userId) {
       return signedIn() && request.auth.uid == userId;
     }
@@ -19,16 +17,25 @@ service cloud.firestore {
     match /colmeias/{hiveId} {
       allow create: if signedIn()
         && request.resource.data.usuarioId == request.auth.uid;
-
       allow get, delete: if signedIn()
         && resource.data.usuarioId == request.auth.uid;
-
       allow list: if signedIn()
         && resource.data.usuarioId == request.auth.uid;
-
       allow update: if signedIn()
         && resource.data.usuarioId == request.auth.uid
         && request.resource.data.usuarioId == request.auth.uid;
+
+      // Subcoleção de histórico
+      match /leituras/{leituraId} {
+        allow create: if signedIn()
+          && get(/databases/$(database)/documents/colmeias/$(hiveId)).data.usuarioId == request.auth.uid;
+
+        allow get, list: if signedIn()
+          && get(/databases/$(database)/documents/colmeias/$(hiveId)).data.usuarioId == request.auth.uid;
+
+        // histórico normalmente não deve ser editado/deletado
+        allow update, delete: if false;
+      }
     }
   }
 }

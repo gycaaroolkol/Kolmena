@@ -72,6 +72,27 @@ const defaultWinterMode: WinterModeSettings = {
   foodDurationMs: 3000
 };
 
+function buildWinterModePayload(settings: WinterModeSettings): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    enabled: settings.enabled,
+    time: settings.time || defaultWinterMode.time,
+    activeUntilMonth: settings.activeUntilMonth || defaultWinterMode.activeUntilMonth,
+    waterDurationMs: settings.waterDurationMs || defaultWinterMode.waterDurationMs,
+    foodDurationMs: settings.foodDurationMs || defaultWinterMode.foodDurationMs,
+    updatedAt: serverTimestamp()
+  };
+
+  if (typeof settings.lastRunDate === "string" && settings.lastRunDate.length > 0) {
+    payload.lastRunDate = settings.lastRunDate;
+  }
+
+  if (settings.autoDisabledAt !== undefined) {
+    payload.autoDisabledAt = settings.autoDisabledAt;
+  }
+
+  return payload;
+}
+
 function isWinterModeSeason(date = new Date(), activeUntilMonth = 5) {
   const month = date.getMonth() + 1;
   return month === 12 || month <= activeUntilMonth;
@@ -196,7 +217,7 @@ export function Dashboard({ onLogout, user, onUpdateUser }: DashboardProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [currentView, setCurrentView] = useState<"dashboard" | "mission">("dashboard");
 
-  const updateWinterModeInHives = async (persistedWinterMode: WinterModeSettings): Promise<HiveWriteResult> => {
+  const updateWinterModeInHives = async (persistedWinterMode: Record<string, unknown>): Promise<HiveWriteResult> => {
     if (hives.length === 0) return { totalCount: 0, failedCount: 0 };
 
     const results = await Promise.allSettled(hives.map((hive) => updateDoc(doc(db, "colmeias", hive.id), {
@@ -226,10 +247,7 @@ export function Dashboard({ onLogout, user, onUpdateUser }: DashboardProps) {
       return { totalCount: 0, failedCount: 0 };
     }
 
-    const persistedWinterMode = {
-      ...nextSettings,
-      updatedAt: serverTimestamp()
-    };
+    const persistedWinterMode = buildWinterModePayload(nextSettings);
 
     const result = await updateWinterModeInHives(persistedWinterMode);
 
@@ -825,10 +843,7 @@ const handleConfirmCleaning = async (id: string) => {
           agua: false,
           racao: false
         },
-        winterMode: {
-          ...winterMode,
-          updatedAt: serverTimestamp()
-        },
+        winterMode: buildWinterModePayload(winterMode),
         lastFeedingTime: {
           food: null,
           water: null
